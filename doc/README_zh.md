@@ -1,6 +1,6 @@
 # Home Assistant Marstek 集成
 
-[English](./README.md) | [简体中文](./doc/README_zh.md)
+[English](../README.md) | [简体中文](./README_zh.md)
 
 Marstek 集成是一个由 Marstek 官方提供的用于 Home Assistant 的集成组件，其可用于监控和控制 Marstek 设备。
 

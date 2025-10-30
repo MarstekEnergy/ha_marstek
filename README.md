@@ -1,6 +1,6 @@
 # Home Assistant  Integration for Marstek 
 
-[English](../README.md) | [简体中文](./README_zh.md)
+[English](./README.md) | [简体中文](../doc/README_zh.md)
 
 Marstek Integration is an integration component provided by Marstek official for Home Assistant, which can be used to monitor and control Marstek devices.
 
