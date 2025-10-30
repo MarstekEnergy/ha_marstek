@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Marstek Energy Storage",
+        "description": "Configure your Marstek energy storage device",
+        "data": {
+          "name": "Device Name",
+          "host": "IP Address",
+          "mac": "MAC Address (optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the device",
+      "no_devices_found": "No Marstek devices found on the network",
+      "device_not_found": "Device not found at the specified IP address"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Marstek Options",
+        "description": "Configure Marstek integration options"
+      }
+    }
+  }
+}
