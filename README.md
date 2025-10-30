@@ -1,106 +1,113 @@
-# Home Assistant Marstek 集成
+# Home Assistant  Integration for Marstek 
 
-Marstek 集成是一个由 Marstek 官方提供的用于 Home Assistant 的集成组件，其可用于监控和控制 Marstek 设备。
+[English](../README.md) | [简体中文](./README_zh.md)
 
-## 系统要求
+Marstek Integration is an integration component provided by Marstek official for Home Assistant, which can be used to monitor and control Marstek devices.
 
-> Home Assistant 版本要求:
+## Requirements
+
+> Home Assistant version requirement:
 >
-> - Core 版本：^2025.10.0
-> - HAOS 版本：^15.0
+> - Core ：^2025.10.0
+> - HAOS ：^15.0
 >
-> Marstek 设备和 Home Assistant 需要在同一局域网内
+> Marstek devices and Home Assistant need to be on the same local network
 >
-> 需要Marstek 设备打开OPEN API使能
+> Marstek devices need to have the OPEN API enabled
 
-## 安装
+## Installation
 
-### 方法1: 通过git clone拉取
+### Method 1: Git clone from GitHub
 
-### 方法2: 通过Samba或SSH手动安装
+```bash
+cd config
+git clone https://github.com/MarstekEnergy/ha_marstek.git
+```
 
-下载Marstek集成文件并将 `custom_components/Marstek 文件夹复制到 Home Assistant 的 `config/custom_components/` 目录下。
+### Method 2: Manually installation via Samba / SSH
 
-## 通信协议
+Download the Marstek integration file and copy the `custom_components/Marstek` folder to the `config/custom_components/` directory in Home Assistant.
 
-### UDP 通信
-- 默认端口：30000
-- 发现超时：10秒
-- 通信模式：
-  - OEPN API
-  - 双向 UDP 通信
+## Communication Protocol
 
-- ES.SetMode请求重试机制：
-  - 优先原则：ES.SetMode指令下发时将停止所有轮询请求
-  - 加入指数规避
+### UDP 
+- Default port ：30000
+- Timeout ：10秒
+- Communication mode ：
+  - OPEN API
+  - Bidirectional UDP communication
 
-
-### 主要命令集
-
-当前版本下, 设备支持以下主要命令(由OPEN API提供)：
-
-- 设备发现：`Marstek.GetDevice`
-- 电池状态：`Bat.GetStatus`
-- 能量存储状态：`ES.GetStatus`
-- 模式设置：`ES.SetMode`
-- 光伏状态(部分设备有效)：`PV.GetStatus`
+- ES.SetMode retry mechanism：
+  - Priority principle: All polling requests will be stopped when the ES.SetMode directive is issued
+  - Add index avoidance
 
 
-## 配置说明
+### Main Command Set
 
-1. 通过 Home Assistant UI 界面添加集成
-2. 集成将自动搜索局域网内的 Marstek 设备: 通常显示"[设备名] [固件版本] ([wifi名称]) - [设备ip]"
-3. 选择要添加的设备并提交确认, 设备将自动启用UDP轮询设备状态
-4. 添加自动化: 目前提供charge, discharge, stop三种模式控制设备充放电
+In the current version, the device supports the following main commands (provided by OPEN API):
 
-## 数据更新机制
+- Device Discovery: `Marstek.GetDevice`
+- Battery Status: `Bat.GetStatus`
+- Energy Storage Status: `ES.GetStatus`
+- Mode Setting: `ES.SetMode`
+- PV Status (available on some devices): `PV.GetStatus`
 
-- 使用本地推送机制 (UDP轮询) 接收设备状态更新
-- 实时响应设备状态变化
-- 保持与设备的持续连接
 
-## 错误处理
+## Configuration Guide
 
-集成实现了以下错误处理机制：
+1. Add integration through Home Assistant UI
+2. The integration will automatically search for Marstek devices on the local network: typically shows "[Device Name] [Firmware Version] ([Wi-Fi Name]) - [Device IP]"
+3. Select the device to add and confirm, UDP polling for device status will be automatically enabled
+4. Add automation: currently provides three modes to control device charging/discharging - charge, discharge, and stop
 
-- 网络连接中断自动重连
-- 设备响应超时处理
-- 配置错误提示
+## Data Update Mechanism
 
-## 注意事项
+- Uses local push mechanism (UDP polling) to receive device status updates
+- Real-time response to device state changes
+- Maintains continuous connection with the device
 
-1. 确保设备和 Home Assistant 在同一网段
-2. UDP 端口 30000 需要保持开放
-3. 首次配置时需要等待设备发现过程完成
+## Error Handling
 
-## 技术支持
+The integration implements the following error handling mechanisms:
 
-如有技术问题，请通过以下方式获取支持：
+- Automatic reconnection for network interruptions
+- Device response timeout handling
+- Configuration error notifications
 
-- 在 [Home Assistant 社区](https://community.home-assistant.io/) 交流
-- 提交 GitHub Issue
-- 联系设备厂商技术支持
+## Important Notes
 
-## 更新日志
+1. Ensure that the OPEN API is enabled on the device
+2. Ensure the device and Home Assistant are on the same network segment
+3. UDP port 30000 must remain open
+4. Wait for the device discovery process to complete during initial configuration
 
-### v0.1.0 
-- 初始版本发布
-- 设备自动发现
-- 支持基本设备状态监控功能和充放电指令控制
+## Technical Support
 
-## 常见问题
+For technical issues, please seek support through:
 
-1. 支持哪些设备?
+- Discuss on the [Home Assistant Community](https://community.home-assistant.io/)
+- Submit a GitHub Issue
+- Contact device manufacturer's technical support
 
-   支持新版本固件下的Venus A, Venus D, Venus E3.0以及其他支持OPEN API通信的Marstek设备
+## Change log
 
-2. 为什么我搜索不到设备?
+### v0.1.0
+- Initial version release
+- Device auto-discovery
+- Support for basic device status monitoring and charge/discharge control commands
 
-   - 未开启OPEN API使能
+## FAQ
 
-   - 确保Marstek设备和Home Assistant连在同一个网段, 并且保持30000端口的开放
-   - 集成通过UDP广播搜索设备, 可能存在网络波动影响设备和HA的通信, 建议重试
+1. Which devices are supported?
 
-3. 何为OPEN API?
+   Supports Venus A, Venus D, Venus E 3.0 with the latest firmware version, and other Marstek devices that support OPEN API communication.
 
-   OPEN API为Marstk设备固件提供的通信接口, 用于在局域网环境下查询设备状态, 以及部分指令控制。**注意, OPEN API目前不是默认开启, 需要官方MQTT协议开启。**或在未来新版本Marstek APP提供开启入口。
+2. Why can't I find my device?
+
+   - OPEN API is not enabled
+   - Ensure Marstek devices and Home Assistant are on the same network segment and port 30000 is open
+   - The integration searches for devices via UDP broadcast, network fluctuations may affect device-HA communication, try again if needed
+
+3. What is OPEN API?
+
+   OPEN API is a communication interface provided by Marstek device firmware for querying device status and controlling certain functions in a local network environment. **Note: OPEN API is not enabled by default, it requires official MQTT protocol to be enabled.** Alternatively, future versions of the Marstek APP will provide an option to enable it.
