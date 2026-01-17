@@ -22,7 +22,7 @@ If you have not cloned the repository before, follow these steps directly:
 
 ```bash
 # 1) Clone the repo (marstek-integration branch)
-git clone https://github.com/MarstekEnergy/home-assistant-core.git
+git clone https://github.com/home-assistant/core.git
 
 cd core
 
