@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
@@ -130,6 +130,7 @@ class MarstekBatterySensor(MarstekSensor):
 
     _attr_translation_key = "battery_level"
     _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:battery"
 
@@ -154,6 +155,7 @@ class MarstekPowerSensor(MarstekSensor):
     """Representation of a Marstek power sensor."""
 
     _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:flash"
 
@@ -295,17 +297,20 @@ class MarstekPVSensor(MarstekSensor):
 
         if metric_type == "power":
             self._attr_native_unit_of_measurement = UnitOfPower.WATT
+            self._attr_device_class = SensorDeviceClass.POWER
             self._attr_icon = "mdi:solar-power"
         elif metric_type == "voltage":
             self._attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
+            self._attr_device_class = SensorDeviceClass.VOLTAGE
             self._attr_icon = "mdi:flash"
         elif metric_type == "current":
             self._attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-            self._attr_icon = "mdi:current-ac"
-        elif metric_type == "state":
-            self._attr_icon = "mdi:state-machine"
-            self._attr_device_class = None
-            self._attr_state_class = None
+            self._attr_device_class = SensorDeviceClass.CURRENT
+            self._attr_icon = "mdi:current-dc"
+#        elif metric_type == "state":
+#            self._attr_icon = "mdi:state-machine"
+#            self._attr_device_class = None
+#            self._attr_state_class = None
         else:
             self._attr_icon = "mdi:solar-panel"
 
@@ -358,7 +363,8 @@ async def async_setup_entry(
     sensors.extend(
         MarstekPVSensor(coordinator, device_info, pv_channel, metric_type, config_entry)
         for pv_channel in range(1, 5)
-        for metric_type in ("power", "voltage", "current", "state")
+#        for metric_type in ("power", "voltage", "current", "state")
+        for metric_type in ("power", "voltage", "current")
     )
 
     _LOGGER.info("Device %s sensors set up, total %d", device_ip, len(sensors))
