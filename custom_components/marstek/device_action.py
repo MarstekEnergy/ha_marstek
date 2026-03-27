@@ -203,25 +203,20 @@ async def async_get_action_capabilities(
 def _get_action_parameters(
     action_type: str, requested_power: int | None = None
 ) -> tuple[int, int]:
-    """Get power and enable parameters for an action type.
+    """Get power and enable parameters for an action type."""
 
-    charge:
-      - requested_power=500 -> power=-500
-      - no requested_power   -> default CHARGE_POWER
-    discharge:
-      - requested_power=500 -> power=500
-      - no requested_power   -> default DISCHARGE_POWER
-    stop:
-      - always power=0, enable=0
-    """
     if action_type == ACTION_CHARGE:
-        if requested_power and requested_power > 0:
-            return -requested_power, 1
+        if requested_power is not None:
+            if requested_power > 0:
+                return -requested_power, 1
+            return STOP_POWER, 0
         return CHARGE_POWER, 1
 
     if action_type == ACTION_DISCHARGE:
-        if requested_power and requested_power > 0:
-            return requested_power, 1
+        if requested_power is not None:
+            if requested_power > 0:
+                return requested_power, 1
+            return STOP_POWER, 0
         return DISCHARGE_POWER, 1
 
     if action_type == ACTION_STOP:
