@@ -41,10 +41,13 @@ VERIFICATION_TIMEOUT = 2.4
 VERIFICATION_DELAY = 0.5
 STOP_POWER_THRESHOLD = 50  # W
 
-# Action power settings
+# Default action power settings
 CHARGE_POWER = -1300  # W (negative for charging)
 DISCHARGE_POWER = 800  # W (positive for discharging)
 STOP_POWER = 0  # W
+
+# Optional power parameter limits
+MAX_ACTION_POWER = 2000  # adjust if needed
 
 # Manual mode configuration
 MANUAL_MODE_START_TIME = "00:00"
@@ -57,6 +60,9 @@ ACTION_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
         vol.Required(CONF_DEVICE_ID): cv.string,
         vol.Required(CONF_TYPE): vol.In(ACTION_TYPES),
         vol.Optional("entity_id"): cv.entity_id,
+        vol.Optional("power"): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=MAX_ACTION_POWER)
+        ),
     }
 )
 
@@ -99,7 +105,7 @@ async def async_call_action_from_config(
             translation_placeholders={"device_id": device_id},
         )
 
-    power, enable = _get_action_parameters(action_type)
+    power, enable = _get_action_parameters(action_type, config.get("power"))
     command = _build_set_mode_command(power, enable)
 
     runtime_data = _get_runtime_data_from_device_id(hass, device_id)
@@ -137,11 +143,12 @@ async def async_call_action_from_config(
             try:
                 if await _verify_es_mode(hass, host, enable, power, udp_client):
                     _LOGGER.info(
-                        "ES.SetMode action '%s' confirmed after attempt %d/%d for device %s",
+                        "ES.SetMode action '%s' confirmed after attempt %d/%d for device %s (power=%sW)",
                         action_type,
                         attempt_idx,
                         MAX_RETRY_ATTEMPTS,
                         host,
+                        power,
                     )
                     return
             except (TimeoutError, OSError, ValueError) as err:
@@ -177,17 +184,44 @@ async def async_get_action_capabilities(
     hass: HomeAssistant, config: ConfigType
 ) -> dict[str, vol.Schema]:
     """List action capabilities."""
-    return {"extra_fields": vol.Schema({})}
+    action_type = config.get(CONF_TYPE)
+
+    if action_type == ACTION_STOP:
+        return {"extra_fields": vol.Schema({})}
+
+    return {
+        "extra_fields": vol.Schema(
+            {
+                vol.Optional("power"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=MAX_ACTION_POWER)
+                )
+            }
+        )
+    }
 
 
-def _get_action_parameters(action_type: str) -> tuple[int, int]:
+def _get_action_parameters(
+    action_type: str, requested_power: int | None = None
+) -> tuple[int, int]:
     """Get power and enable parameters for an action type."""
+
     if action_type == ACTION_CHARGE:
+        if requested_power is not None:
+            if requested_power > 0:
+                return -requested_power, 1
+            return STOP_POWER, 0
         return CHARGE_POWER, 1
+
     if action_type == ACTION_DISCHARGE:
+        if requested_power is not None:
+            if requested_power > 0:
+                return requested_power, 1
+            return STOP_POWER, 0
         return DISCHARGE_POWER, 1
+
     if action_type == ACTION_STOP:
         return STOP_POWER, 0
+
     raise ValueError(f"Unknown action type: {action_type}")
 
 
