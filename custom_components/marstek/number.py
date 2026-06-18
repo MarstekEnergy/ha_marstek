@@ -64,7 +64,7 @@ class MarstekPassivePowerNumber(
         super().__init__(coordinator)
         self._device_info = device_info
         self._config_entry = config_entry
-        self._value = 100.0
+        self._value: float | None = None
         self._apply_task: asyncio.Task | None = None
 
         device_identifier = (
@@ -99,8 +99,8 @@ class MarstekPassivePowerNumber(
         return self.coordinator.is_device_reachable()
 
     @property
-    def native_value(self) -> float:
-        """Return current configured value."""
+    def native_value(self) -> float | None:
+        """Return configured passive power when known."""
         return self._value
 
     async def async_set_native_value(self, value: float) -> None:
@@ -114,6 +114,12 @@ class MarstekPassivePowerNumber(
         self._value = float(new_value)
         self.async_write_ha_state()
 
+        _LOGGER.info(
+            "Sending ES.SetMode (Passive %s W) to Marstek at %s — user/automation action",
+            new_value,
+            host,
+        )
+
         if self.hass:
             if self._apply_task and not self._apply_task.done():
                 self._apply_task.cancel()
@@ -122,7 +128,7 @@ class MarstekPassivePowerNumber(
             )
 
     async def _async_apply_value(
-        self, new_value: int, old_value: float, host: str
+        self, new_value: int, old_value: float | None, host: str
     ) -> None:
         """Apply passive power with retries and rollback on failure."""
         success = False

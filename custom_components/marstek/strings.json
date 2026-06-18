@@ -33,7 +33,8 @@
           "request_delay": "Delay between UDP requests (seconds)",
           "request_timeout": "Request timeout (seconds)",
           "staleness_threshold": "Stale update cycles before unknown",
-          "unavailable_after_seconds": "Unavailable after (seconds)"
+          "unavailable_after_seconds": "Unavailable after (seconds)",
+          "startup_delay": "Startup delay before first poll (seconds)"
         },
         "data_description": {
           "scan_interval": "How often ES.GetMode and PV.GetStatus are polled (default: 60 s). Minimum: 10 s.",
@@ -41,7 +42,8 @@
           "request_delay": "Pause between consecutive API calls within one poll cycle (default: 4 s).",
           "request_timeout": "Per-request UDP timeout before retry (default: 5 s).",
           "staleness_threshold": "Missed category updates before a sensor shows unknown (default: 3 cycles).",
-          "unavailable_after_seconds": "Seconds without any successful poll before entities become unavailable (default: 600 s)."
+          "unavailable_after_seconds": "Seconds without any successful poll before entities become unavailable (default: 600 s).",
+          "startup_delay": "Wait after Home Assistant load before the first UDP poll (default: 45 s). Helps avoid disturbing feed-in on reload."
         }
       }
     }

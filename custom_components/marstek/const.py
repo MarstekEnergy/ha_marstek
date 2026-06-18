@@ -33,6 +33,7 @@ CONF_OPTION_REQUEST_DELAY: Final = "request_delay"
 CONF_OPTION_REQUEST_TIMEOUT: Final = "request_timeout"
 CONF_OPTION_STALENESS_THRESHOLD: Final = "staleness_threshold"
 CONF_OPTION_UNAVAILABLE_AFTER: Final = "unavailable_after_seconds"
+CONF_OPTION_STARTUP_DELAY: Final = "startup_delay"
 
 # Defaults aligned with Marstek Open API community best practices
 DEFAULT_SCAN_INTERVAL: Final = 60  # seconds – fast tier (ES.GetMode, PV.GetStatus)
@@ -41,6 +42,7 @@ DEFAULT_REQUEST_DELAY: Final = 4.0  # seconds between consecutive UDP requests (
 DEFAULT_REQUEST_TIMEOUT: Final = 5.0  # seconds per request
 DEFAULT_STALENESS_THRESHOLD: Final = 3  # missed category updates before value → unknown
 DEFAULT_UNAVAILABLE_AFTER: Final = 600  # seconds without any success before unavailable
+DEFAULT_STARTUP_DELAY: Final = 45  # seconds to wait after HA load before first device poll
 
 MIN_SCAN_INTERVAL: Final = 10
 MAX_SCAN_INTERVAL: Final = 600
@@ -54,6 +56,8 @@ MIN_STALENESS_THRESHOLD: Final = 1
 MAX_STALENESS_THRESHOLD: Final = 10
 MIN_UNAVAILABLE_AFTER: Final = 120
 MAX_UNAVAILABLE_AFTER: Final = 3600
+MIN_STARTUP_DELAY: Final = 0
+MAX_STARTUP_DELAY: Final = 300
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +70,7 @@ class MarstekOptions:
     request_timeout: float
     staleness_threshold: int
     unavailable_after_seconds: int
+    startup_delay: int
 
 
 def get_entry_options(config_entry: ConfigEntry) -> MarstekOptions:
@@ -91,5 +96,8 @@ def get_entry_options(config_entry: ConfigEntry) -> MarstekOptions:
         ),
         unavailable_after_seconds=int(
             options.get(CONF_OPTION_UNAVAILABLE_AFTER, DEFAULT_UNAVAILABLE_AFTER)
+        ),
+        startup_delay=int(
+            options.get(CONF_OPTION_STARTUP_DELAY, DEFAULT_STARTUP_DELAY)
         ),
     )

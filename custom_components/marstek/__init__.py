@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 import json
 import logging
 from typing import Any
 
-from pymarstek import MarstekUDPClient, get_es_mode
+from pymarstek import MarstekUDPClient
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
@@ -16,7 +17,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DEFAULT_UDP_PORT, DOMAIN, PLATFORMS
+from .const import DEFAULT_UDP_PORT, DOMAIN, PLATFORMS, get_entry_options
 from .coordinator import MarstekDataUpdateCoordinator
 from .scanner import MarstekScanner
 
@@ -190,58 +191,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     await udp_client.async_setup()
 
     stored_ip = entry.data[CONF_HOST]
-    # Only use BLE-MAC for device identification (user feedback)
     stored_ble_mac = entry.data.get("ble_mac")
+    options = get_entry_options(entry)
 
     _LOGGER.info(
-        "Starting setup: attempting to connect to device at IP %s (BLE-MAC: %s)",
+        "Setting up Marstek at %s (BLE-MAC: %s); first poll in %ss",
         stored_ip,
         stored_ble_mac or "unknown",
+        options.startup_delay,
     )
 
-    # Try to connect with stored IP (mik-laj feedback)
-    # If we have an IP address in the configuration, we should always connect to that IP
-    # Discovery is handled by Scanner, not here
-    try:
-        _LOGGER.info("Attempting connection to %s:%s", stored_ip, DEFAULT_UDP_PORT)
-        await udp_client.send_request(
-            get_es_mode(0),
-            stored_ip,
-            DEFAULT_UDP_PORT,
-            timeout=5.0,  # Increased timeout for initial connection
-        )
-        # Connection successful - device is at the configured IP
-        # Use device info from config_entry (saved during config flow)
-        _LOGGER.info(
-            "Connection successful to device at %s - using config_entry data",
-            stored_ip,
-        )
-    except (TimeoutError, OSError, ValueError) as ex:
-        # Connection failed - device IP may have changed
-        # Scanner will detect IP changes and update config entry via config flow
-        # Raise ConfigEntryNotReady to allow Home Assistant to retry after Scanner updates IP
-        await udp_client.async_cleanup()
-        _LOGGER.warning(
-            "Unable to connect to device at %s (error: %s: %s). "
-            "Scanner will detect IP changes automatically",
-            stored_ip,
-            type(ex).__name__,
-            str(ex),
-        )
-        raise ConfigEntryNotReady(
-            f"Unable to connect to device at {stored_ip}. "
-            "Scanner will detect IP changes and update configuration automatically."
-        ) from ex
+    # Reuse config entry metadata on reload — skip extra GetDevice/discovery UDP burst.
+    entry_data = dict(entry.data)
 
-    # Refresh metadata directly first, then try discovery fallback.
-    entry_data = await _refresh_device_metadata_direct(
-        hass, entry, udp_client, stored_ip
-    )
-    entry_data = await _refresh_device_metadata_from_discovery(
-        hass, entry, udp_client, base_data=entry_data
-    )
-
-    # Use device info from config_entry (saved during config flow)
     device_info_dict = {
         "ip": stored_ip,
         "mac": entry_data.get("mac", ""),
@@ -252,11 +214,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
         "ble_mac": entry_data.get("ble_mac", ""),
     }
 
-    # Create coordinator in __init__.py (mik-laj feedback)
     coordinator = MarstekDataUpdateCoordinator(
         hass, entry, udp_client, device_info_dict["ip"]
     )
-    await coordinator.async_config_entry_first_refresh()
+
+    if options.startup_delay > 0:
+        _LOGGER.info(
+            "Deferring first Marstek poll for %ss so the device can keep exporting "
+            "undisturbed after Home Assistant reload",
+            options.startup_delay,
+        )
+        await asyncio.sleep(options.startup_delay)
+
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as ex:
+        await udp_client.async_cleanup()
+        _LOGGER.warning(
+            "Unable to reach Marstek at %s after startup delay: %s",
+            stored_ip,
+            ex,
+        )
+        raise ConfigEntryNotReady(
+            f"Unable to connect to device at {stored_ip}."
+        ) from ex
 
     # Store client, coordinator, and device_info in runtime_data
     entry.runtime_data = MarstekRuntimeData(

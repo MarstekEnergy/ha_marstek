@@ -56,8 +56,7 @@ class MarstekScanner:
             cancel_on_shutdown=True,
         )
 
-        # Execute initial scan immediately
-        self.async_scan()
+        # First scan runs after one interval — avoids UDP burst on HA restart.
 
     @callback
     def async_scan(self, now=None) -> None:

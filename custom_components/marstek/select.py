@@ -152,6 +152,12 @@ class MarstekModeSelect(CoordinatorEntity[MarstekDataUpdateCoordinator], SelectE
         self._optimistic_option = option
         self.async_write_ha_state()
 
+        _LOGGER.info(
+            "Sending ES.SetMode (%s) to Marstek at %s — user/automation action",
+            option,
+            host,
+        )
+
         if self.hass:
             if self._apply_task and not self._apply_task.done():
                 self._apply_task.cancel()
