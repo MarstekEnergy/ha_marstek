@@ -398,7 +398,7 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
             device_info,
             "total_pv_input_power",
             config_entry,
-            data_category=DATA_CATEGORY_ES,
+            data_category=DATA_CATEGORY_PV,
         )
 
     @property
@@ -428,32 +428,19 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
 
     @property
     def native_value(self) -> StateType:
-        """Return total PV power.
+        """Return total PV power as the sum of PV1–PV4 from PV.GetStatus.
 
-        Prefer the sum of PV1–PV4. ES.GetStatus ``pv_power`` is only used when
-        positive; a zero aggregate on Venus D/A is not trusted over channel data.
+        ES.GetStatus ``pv_power`` is unreliable on Venus D/A (often stuck at 0);
+        use sensor ``PV Power (ES)`` for the raw ES field.
         """
         if not self.coordinator.is_device_reachable() or not self.coordinator.data:
             return None
 
         data = self.coordinator.data
-        channel_total = self._sum_pv_channel_power(data)
+        if not self._pv_snapshot_usable(data):
+            return None
 
-        if channel_total > 0 and self._pv_snapshot_usable(data):
-            return cast(StateType, round(channel_total, 1))
-
-        aggregate = data.get("pv_power")
-        if (
-            isinstance(aggregate, (int, float))
-            and float(aggregate) > 0
-            and self.coordinator.is_category_fresh(DATA_CATEGORY_ES)
-        ):
-            return cast(StateType, round(float(aggregate), 1))
-
-        if self.coordinator.is_category_fresh(DATA_CATEGORY_PV):
-            return cast(StateType, 0.0)
-
-        return None
+        return cast(StateType, round(self._sum_pv_channel_power(data), 1))
 
 
 class MarstekPVAggregatePowerSensor(MarstekSensor):
