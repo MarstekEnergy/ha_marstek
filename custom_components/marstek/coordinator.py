@@ -100,6 +100,37 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self.config_entry.data.get(CONF_HOST, self._initial_device_ip)
         return self._initial_device_ip
 
+    def _positive_ongrid_export_device(self) -> bool:
+        """Return whether this device reports grid export as positive ongrid_power."""
+        device_type = self.config_entry.data.get("device_type", "").lower()
+        return "venus d" in device_type or "venus a" in device_type
+
+    def grid_export_power_w(self, device_status: dict[str, Any]) -> int:
+        """Return non-negative grid export power in watts from device status."""
+        ongrid_power = device_status.get("ongrid_power")
+        if not isinstance(ongrid_power, (int, float)):
+            return 0
+
+        ongrid_w = float(ongrid_power)
+        via_negative = max(0.0, -ongrid_w)
+        via_positive = max(0.0, ongrid_w)
+        ongrid_fresh = device_status.get("_es_status_ongrid_fresh")
+
+        if ongrid_fresh:
+            if self._positive_ongrid_export_device():
+                if via_positive >= _GRID_ACTIVITY_THRESHOLD_W:
+                    return int(via_positive)
+                if via_negative >= _GRID_ACTIVITY_THRESHOLD_W:
+                    return int(via_negative)
+                return 0
+            if via_negative >= _GRID_ACTIVITY_THRESHOLD_W:
+                return int(via_negative)
+            return 0
+
+        if self._positive_ongrid_export_device():
+            return int(via_positive)
+        return int(via_negative) if via_negative >= _GRID_ACTIVITY_THRESHOLD_W else 0
+
     def _apply_options(self) -> None:
         """Reload polling options from the config entry."""
         self._options = get_entry_options(self.config_entry)
@@ -202,6 +233,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._touch_category("pv")
 
         self._restore_previous_pv_if_missing(device_status)
+        self._preserve_ongrid_if_zero_glitch(device_status)
         self._update_battery_status(device_status)
 
         if self._is_suspicious_zero_snapshot(device_status):
@@ -295,8 +327,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     updated_ongrid = True
         return updated_ongrid
 
-    @staticmethod
-    def _update_battery_status(device_status: dict[str, Any]) -> None:
+    def _update_battery_status(self, device_status: dict[str, Any]) -> None:
         """Derive battery status from ES.GetStatus, not ES.GetMode ongrid alone.
 
         ``parse_es_mode_response`` maps GetMode ``ongrid_power`` to Selling/Idle,
@@ -305,6 +336,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         bat_power = device_status.get("bat_power")
         ongrid_power = device_status.get("ongrid_power")
         ongrid_fresh = device_status.get("_es_status_ongrid_fresh")
+        positive_export = self._positive_ongrid_export_device()
 
         if isinstance(bat_power, (int, float)):
             bat_w = float(bat_power)
@@ -318,10 +350,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(ongrid_power, (int, float)):
             ongrid_w = float(ongrid_power)
             if ongrid_fresh:
-                if ongrid_w < -_GRID_ACTIVITY_THRESHOLD_W:
+                if positive_export and ongrid_w > _GRID_ACTIVITY_THRESHOLD_W:
                     device_status["battery_status"] = "Selling"
                     return
-                if ongrid_w > _GRID_ACTIVITY_THRESHOLD_W:
+                if not positive_export and ongrid_w < -_GRID_ACTIVITY_THRESHOLD_W:
+                    device_status["battery_status"] = "Selling"
+                    return
+                if not positive_export and ongrid_w > _GRID_ACTIVITY_THRESHOLD_W:
                     device_status["battery_status"] = "Charging"
                     return
             elif ongrid_w > _GRID_ACTIVITY_THRESHOLD_W:
@@ -330,6 +365,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
 
         device_status["battery_status"] = "Idle"
+
+    def _preserve_ongrid_if_zero_glitch(self, device_status: dict[str, Any]) -> None:
+        """Keep previous ongrid when a single poll reports 0 W during active export."""
+        previous = self.data or {}
+        if not previous:
+            return
+
+        previous_export = self.grid_export_power_w(previous)
+        current_export = self.grid_export_power_w(device_status)
+        if previous_export >= _GRID_ACTIVITY_THRESHOLD_W and current_export == 0:
+            device_status["ongrid_power"] = previous.get("ongrid_power")
+            device_status["_es_status_ongrid_fresh"] = previous.get(
+                "_es_status_ongrid_fresh", False
+            )
 
     @staticmethod
     def _has_active_pv_snapshot(device_status: dict[str, Any]) -> bool:

@@ -201,28 +201,12 @@ class MarstekPowerSensor(MarstekSensor):
 
     @property
     def native_value(self) -> StateType:
-        """Return grid feed-in power (non-negative), aligned with jaapp ES.GetStatus.
-
-        jaapp exposes ``grid_power`` as raw signed ``ongrid_power`` from
-        ES.GetStatus (positive = grid import, negative = grid export). For
-        Einspeiseleistung we show export only: ``max(0, -ongrid_power)``.
-
-        When ES.GetStatus is missing we fall back to ES.GetMode, where some
-        firmwares use the opposite sign (positive = export).
-        """
+        """Return grid feed-in power (non-negative watts)."""
         if not self._value_is_fresh() or not self.coordinator.data:
             return None
 
         data = self.coordinator.data
-        ongrid = data.get("ongrid_power")
-        if not isinstance(ongrid, (int, float)):
-            return None
-
-        ongrid_f = float(ongrid)
-        if data.get("_es_status_ongrid_fresh"):
-            power = int(max(0, -ongrid_f))
-        else:
-            power = int(max(0, ongrid_f))
+        power = self.coordinator.grid_export_power_w(data)
 
         if power > 0:
             self._last_nonzero_power = power
@@ -231,7 +215,7 @@ class MarstekPowerSensor(MarstekSensor):
         if (
             self._last_nonzero_power
             and self._last_nonzero_power >= 50
-            and data.get("battery_status") != "Charging"
+            and data.get("battery_status") in ("Selling", "Idle")
         ):
             return self._last_nonzero_power
 
