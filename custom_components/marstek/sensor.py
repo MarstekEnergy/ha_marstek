@@ -406,55 +406,52 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
         """Return the name of the sensor."""
         return "Total PV Input Power"
 
-    def _value_is_fresh(self) -> bool:
-        """Total PV may come from ES.GetStatus or PV.GetStatus channel sum."""
-        if not self.coordinator.is_device_reachable():
-            return False
-        return (
-            self.coordinator.is_category_fresh(DATA_CATEGORY_ES)
-            or self.coordinator.is_category_fresh(DATA_CATEGORY_PV)
-        )
-
     @staticmethod
     def _sum_pv_channel_power(data: dict[str, Any]) -> float:
-        """Sum active MPPT channels from PV.GetStatus."""
+        """Sum MPPT channel power from PV.GetStatus (after coordinator scaling)."""
         total = 0.0
         for channel in range(1, 5):
             power = data.get(f"pv{channel}_power")
-            voltage = data.get(f"pv{channel}_voltage")
-            if not isinstance(power, (int, float)):
-                continue
-            if isinstance(voltage, (int, float)) and float(voltage) <= 0:
-                continue
-            if float(power) <= 0:
-                continue
-            total += float(power)
+            if isinstance(power, (int, float)) and float(power) > 0:
+                total += float(power)
         return total
+
+    def _pv_snapshot_usable(self, data: dict[str, Any]) -> bool:
+        """Return whether retained per-channel PV data should be shown."""
+        if self.coordinator.is_category_fresh(DATA_CATEGORY_PV):
+            return True
+        for channel in range(1, 5):
+            voltage = data.get(f"pv{channel}_voltage")
+            if isinstance(voltage, (int, float)) and float(voltage) > 0:
+                return True
+        return False
 
     @property
     def native_value(self) -> StateType:
         """Return total PV power.
 
-        Prefer ``pv_power`` from ES.GetStatus when it is non-zero. On Venus D/A
-        that field is often stuck at 0 while PV1–PV4 from PV.GetStatus are valid.
+        Prefer the sum of PV1–PV4. ES.GetStatus ``pv_power`` is only used when
+        positive; a zero aggregate on Venus D/A is not trusted over channel data.
         """
-        if not self._value_is_fresh() or not self.coordinator.data:
+        if not self.coordinator.is_device_reachable() or not self.coordinator.data:
             return None
 
         data = self.coordinator.data
         channel_total = self._sum_pv_channel_power(data)
 
-        aggregate = data.get("pv_power")
-        if isinstance(aggregate, (int, float)) and float(aggregate) > 0:
-            return cast(StateType, round(float(aggregate), 1))
-
-        if self.coordinator.is_category_fresh(DATA_CATEGORY_PV) and channel_total > 0:
+        if channel_total > 0 and self._pv_snapshot_usable(data):
             return cast(StateType, round(channel_total, 1))
 
-        if isinstance(aggregate, (int, float)) and self.coordinator.is_category_fresh(
-            DATA_CATEGORY_ES
+        aggregate = data.get("pv_power")
+        if (
+            isinstance(aggregate, (int, float))
+            and float(aggregate) > 0
+            and self.coordinator.is_category_fresh(DATA_CATEGORY_ES)
         ):
             return cast(StateType, round(float(aggregate), 1))
+
+        if self.coordinator.is_category_fresh(DATA_CATEGORY_PV):
+            return cast(StateType, 0.0)
 
         return None
 
