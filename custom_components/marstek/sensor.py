@@ -406,25 +406,18 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
         """Return the name of the sensor."""
         return "Total PV Input Power"
 
-    @property
-    def native_value(self) -> StateType:
-        """Return total PV power, preferring ES.GetStatus aggregate like jaapp.
+    def _value_is_fresh(self) -> bool:
+        """Total PV may come from ES.GetStatus or PV.GetStatus channel sum."""
+        if not self.coordinator.is_device_reachable():
+            return False
+        return (
+            self.coordinator.is_category_fresh(DATA_CATEGORY_ES)
+            or self.coordinator.is_category_fresh(DATA_CATEGORY_PV)
+        )
 
-        jaapp uses ``es.pv_power`` (ES.GetStatus) as authoritative solar power.
-        Summing PV1..PV4 from PV.GetStatus can over-read when inactive channels
-        report stale values; PV1 may be corrected against PV2–PV4 in the coordinator.
-        """
-        if not self._value_is_fresh() or not self.coordinator.data:
-            return None
-
-        data = self.coordinator.data
-        aggregate = data.get("pv_power")
-        if isinstance(aggregate, (int, float)) and float(aggregate) >= 0:
-            return cast(StateType, round(float(aggregate), 1))
-
-        if not self.coordinator.is_category_fresh(DATA_CATEGORY_PV):
-            return None
-
+    @staticmethod
+    def _sum_pv_channel_power(data: dict[str, Any]) -> float:
+        """Sum active MPPT channels from PV.GetStatus."""
         total = 0.0
         for channel in range(1, 5):
             power = data.get(f"pv{channel}_power")
@@ -436,9 +429,33 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
             if float(power) <= 0:
                 continue
             total += float(power)
+        return total
 
-        if total > 0:
-            return cast(StateType, round(total, 1))
+    @property
+    def native_value(self) -> StateType:
+        """Return total PV power.
+
+        Prefer ``pv_power`` from ES.GetStatus when it is non-zero. On Venus D/A
+        that field is often stuck at 0 while PV1–PV4 from PV.GetStatus are valid.
+        """
+        if not self._value_is_fresh() or not self.coordinator.data:
+            return None
+
+        data = self.coordinator.data
+        channel_total = self._sum_pv_channel_power(data)
+
+        aggregate = data.get("pv_power")
+        if isinstance(aggregate, (int, float)) and float(aggregate) > 0:
+            return cast(StateType, round(float(aggregate), 1))
+
+        if self.coordinator.is_category_fresh(DATA_CATEGORY_PV) and channel_total > 0:
+            return cast(StateType, round(channel_total, 1))
+
+        if isinstance(aggregate, (int, float)) and self.coordinator.is_category_fresh(
+            DATA_CATEGORY_ES
+        ):
+            return cast(StateType, round(float(aggregate), 1))
+
         return None
 
 
