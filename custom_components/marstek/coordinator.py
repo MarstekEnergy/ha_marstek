@@ -51,6 +51,9 @@ _ES_STATUS_KEYS = (
     "total_load_energy",
 )
 
+_BATTERY_POWER_THRESHOLD_W = 10
+_GRID_ACTIVITY_THRESHOLD_W = 50
+
 
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Per-device data update coordinator."""
@@ -195,8 +198,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             had_success = True
         else:
             _LOGGER.debug("PV.GetStatus missed for %s", current_ip)
+            if self._has_active_pv_snapshot(device_status):
+                self._touch_category("pv")
 
         self._restore_previous_pv_if_missing(device_status)
+        self._update_battery_status(device_status)
 
         if self._is_suspicious_zero_snapshot(device_status):
             _LOGGER.warning(
@@ -288,6 +294,51 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if key == "ongrid_power":
                     updated_ongrid = True
         return updated_ongrid
+
+    @staticmethod
+    def _update_battery_status(device_status: dict[str, Any]) -> None:
+        """Derive battery status from ES.GetStatus, not ES.GetMode ongrid alone.
+
+        ``parse_es_mode_response`` maps GetMode ``ongrid_power`` to Selling/Idle,
+        which flaps on UDP glitches and ignores grid export from ES.GetStatus.
+        """
+        bat_power = device_status.get("bat_power")
+        ongrid_power = device_status.get("ongrid_power")
+        ongrid_fresh = device_status.get("_es_status_ongrid_fresh")
+
+        if isinstance(bat_power, (int, float)):
+            bat_w = float(bat_power)
+            if bat_w > _BATTERY_POWER_THRESHOLD_W:
+                device_status["battery_status"] = "Charging"
+                return
+            if bat_w < -_BATTERY_POWER_THRESHOLD_W:
+                device_status["battery_status"] = "Selling"
+                return
+
+        if isinstance(ongrid_power, (int, float)):
+            ongrid_w = float(ongrid_power)
+            if ongrid_fresh:
+                if ongrid_w < -_GRID_ACTIVITY_THRESHOLD_W:
+                    device_status["battery_status"] = "Selling"
+                    return
+                if ongrid_w > _GRID_ACTIVITY_THRESHOLD_W:
+                    device_status["battery_status"] = "Charging"
+                    return
+            elif ongrid_w > _GRID_ACTIVITY_THRESHOLD_W:
+                # ES.GetMode fallback on some Venus D firmware: positive = export
+                device_status["battery_status"] = "Selling"
+                return
+
+        device_status["battery_status"] = "Idle"
+
+    @staticmethod
+    def _has_active_pv_snapshot(device_status: dict[str, Any]) -> bool:
+        """Return whether retained PV channel data looks usable."""
+        for channel in range(1, 5):
+            voltage = device_status.get(f"pv{channel}_voltage")
+            if isinstance(voltage, (int, float)) and float(voltage) > 0:
+                return True
+        return False
 
     @staticmethod
     def _scale_pv1_power_if_needed(device_status: dict[str, Any]) -> None:
