@@ -120,6 +120,11 @@ class MarstekModeSelect(CoordinatorEntity[MarstekDataUpdateCoordinator], SelectE
         return f"{device_id}_operation_mode"
 
     @property
+    def available(self) -> bool:
+        """Return whether the device is reachable."""
+        return self.coordinator.is_device_reachable()
+
+    @property
     def current_option(self) -> str | None:
         """Return selected option."""
         if self._optimistic_option is not None:

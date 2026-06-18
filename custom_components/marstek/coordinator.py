@@ -18,6 +18,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    DATA_CATEGORY_STATIC,
     DEFAULT_UDP_PORT,
     DOMAIN,
     MarstekOptions,
@@ -62,8 +63,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config_entry = config_entry
         self._initial_device_ip = device_ip
         self._options = get_entry_options(config_entry)
-        self._consecutive_failures = 0
-        self._last_medium_fetch: float = 0.0
+        self.category_last_updated: dict[str, float] = {}
+        self.last_message_timestamp: float | None = None
+        self._last_medium_fetch: float = time.monotonic()
 
         super().__init__(
             hass,
@@ -73,7 +75,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=config_entry,
         )
         _LOGGER.debug(
-            "Device %s polling coordinator started, fast interval: %ss, "
+            "Device %s polling coordinator started, interval: %ss, "
             "medium interval: %ss, request delay: %ss",
             device_ip,
             self._options.scan_interval,
@@ -96,17 +98,40 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Reload polling options from the config entry."""
         self._options = get_entry_options(self.config_entry)
         self.update_interval = timedelta(seconds=self._options.scan_interval)
-        self._last_medium_fetch = 0.0
+
+    def _touch_category(self, category: str) -> None:
+        """Record a successful refresh for a data category."""
+        self.category_last_updated[category] = time.time()
+
+    def is_category_fresh(self, category: str) -> bool:
+        """Return whether a data category was updated recently enough to display."""
+        if category == DATA_CATEGORY_STATIC:
+            return True
+        if category not in self.category_last_updated:
+            return False
+        max_age = self._options.scan_interval * self._options.staleness_threshold
+        return (time.time() - self.category_last_updated[category]) < max_age
+
+    def get_seconds_since_last_message(self) -> int | None:
+        """Return seconds since any API call last succeeded."""
+        if self.last_message_timestamp is None:
+            return None
+        return int(time.time() - self.last_message_timestamp)
+
+    def is_device_reachable(self) -> bool:
+        """Return whether the device had a successful poll within the unavailable window."""
+        if self.last_message_timestamp is None:
+            return self.data is not None
+        elapsed = time.time() - self.last_message_timestamp
+        return elapsed < self._options.unavailable_after_seconds
 
     def _should_fetch_medium(self) -> bool:
         """Return whether the medium-tier ES.GetStatus poll is due."""
-        if self._last_medium_fetch == 0.0:
-            return True
         elapsed = time.monotonic() - self._last_medium_fetch
         return elapsed >= self._options.medium_scan_interval
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch device data using tiered Open API polling."""
+        """Fetch device data; preserve previous values on partial UDP failures."""
         current_ip = self.device_ip
         _LOGGER.debug("Start polling device: %s", current_ip)
 
@@ -114,95 +139,93 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Polling paused for device: %s, skipping update", current_ip)
             return self.data or {}
 
+        is_first_update = self.data is None
+        device_status: dict[str, Any] = dict(self.data) if self.data else {}
         options = self._options
-        device_status: dict[str, Any] = {}
+        had_success = False
 
-        try:
-            es_mode_response = await self._send_with_retry(
-                get_es_mode(0),
-                "ES.GetMode",
+        es_mode_response = await self._send_with_retry(
+            get_es_mode(0),
+            "ES.GetMode",
+            current_ip,
+            options,
+        )
+        if isinstance(es_mode_response, dict):
+            parsed = parse_es_mode_response(es_mode_response)
+            if parsed.get("device_mode", "Unknown") != "Unknown":
+                device_status.update(parsed)
+                self._merge_es_mode_extended_fields(device_status, es_mode_response)
+                self._touch_category("es")
+                had_success = True
+            else:
+                _LOGGER.debug("ES.GetMode returned unknown mode for %s", current_ip)
+        else:
+            _LOGGER.debug("ES.GetMode missed for %s", current_ip)
+
+        await asyncio.sleep(options.request_delay)
+
+        pv_response = await self._send_with_retry(
+            get_pv_status(0),
+            "PV.GetStatus",
+            current_ip,
+            options,
+        )
+        if isinstance(pv_response, dict):
+            device_status.update(parse_pv_status_response(pv_response))
+            self._touch_category("pv")
+            had_success = True
+        else:
+            _LOGGER.debug("PV.GetStatus missed for %s", current_ip)
+
+        self._restore_previous_pv_if_missing(device_status)
+
+        if self._is_suspicious_zero_snapshot(device_status):
+            _LOGGER.warning(
+                "Transient zero/default snapshot from %s; keeping previous values",
                 current_ip,
-                options,
             )
-            if not isinstance(es_mode_response, dict):
-                raise TimeoutError(f"No ES.GetMode response from {current_ip}")
-
-            device_status.update(parse_es_mode_response(es_mode_response))
-            self._merge_es_mode_extended_fields(device_status, es_mode_response)
-
-            if device_status.get("device_mode", "Unknown") == "Unknown":
-                raise TimeoutError(
-                    f"No valid ES.GetMode data received from device at {current_ip}"
-                )
-
-            await asyncio.sleep(options.request_delay)
-
-            pv_response = await self._send_with_retry(
-                get_pv_status(0),
-                "PV.GetStatus",
-                current_ip,
-                options,
-            )
-            if isinstance(pv_response, dict):
-                device_status.update(parse_pv_status_response(pv_response))
-
-            if self._should_fetch_medium():
-                await asyncio.sleep(options.request_delay)
-                es_status_response = await self._send_with_retry(
-                    get_es_status(0),
-                    "ES.GetStatus",
-                    current_ip,
-                    options,
-                )
-                if isinstance(es_status_response, dict):
-                    self._merge_es_status_fields(device_status, es_status_response)
-                self._last_medium_fetch = time.monotonic()
-
-            if self._is_suspicious_zero_snapshot(device_status):
-                _LOGGER.warning(
-                    "Detected transient zero/default snapshot from %s; keeping previous values",
-                    current_ip,
-                )
-                raise TimeoutError("Transient zero/default snapshot detected")
-
-            self._restore_previous_pv_if_missing(device_status)
-            self._carry_forward_missing_snapshot_values(device_status)
+            if self.data:
+                device_status = dict(self.data)
+            elif not had_success:
+                device_status = {}
+        else:
             self._normalize_pv_power_scaling(device_status)
 
+        if self._should_fetch_medium():
+            await asyncio.sleep(options.request_delay)
+            es_status_response = await self._send_with_retry(
+                get_es_status(0),
+                "ES.GetStatus",
+                current_ip,
+                options,
+            )
+            if isinstance(es_status_response, dict):
+                self._merge_es_status_fields(device_status, es_status_response)
+                self._touch_category("energy")
+                self._last_medium_fetch = time.monotonic()
+                had_success = True
+            else:
+                _LOGGER.debug("ES.GetStatus missed for %s", current_ip)
+
+        if had_success:
+            self.last_message_timestamp = time.time()
             _LOGGER.debug(
-                "Device %s poll done: SOC %s%%, Power %sW, Mode %s, Status %s",
+                "Device %s poll done: SOC %s%%, ongrid %sW, Mode %s",
                 current_ip,
                 device_status.get("battery_soc"),
-                device_status.get("battery_power"),
+                device_status.get("ongrid_power"),
                 device_status.get("device_mode"),
-                device_status.get("battery_status"),
+            )
+        else:
+            _LOGGER.debug(
+                "No fresh data for %s this cycle; keeping previous snapshot",
+                current_ip,
             )
 
-            self._consecutive_failures = 0
-            return device_status
-        except (TimeoutError, OSError, ValueError) as err:
-            return self._handle_poll_failure(current_ip, err)
+        if is_first_update and not had_success:
+            raise UpdateFailed(f"No response from Marstek device at {current_ip}")
 
-    def _handle_poll_failure(
-        self, current_ip: str, err: TimeoutError | OSError | ValueError
-    ) -> dict[str, Any]:
-        """Track consecutive failures and mark entities unavailable when threshold is hit."""
-        self._consecutive_failures += 1
-        threshold = self._options.failures_before_unavailable
-        _LOGGER.warning(
-            "Device %s status request failed (%d/%d): %s. "
-            "Scanner will detect IP changes automatically",
-            current_ip,
-            self._consecutive_failures,
-            threshold,
-            err,
-        )
-        if self._consecutive_failures >= threshold:
-            raise UpdateFailed(
-                f"Device {current_ip} unreachable after {self._consecutive_failures} "
-                f"consecutive failures"
-            ) from err
-        return self.data or {}
+        return device_status
 
     async def _send_with_retry(
         self,
@@ -261,46 +284,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(value, (int, float)):
                 device_status[key] = value
 
-    def _carry_forward_missing_snapshot_values(
-        self, device_status: dict[str, Any]
-    ) -> None:
-        """Keep last known values when optional API calls miss fields.
-
-        Medium-tier calls (`ES.GetStatus`) or intermittent UDP loss can omit
-        fields for a single cycle. Without this, entities flip to `unknown`.
-        """
-        previous = self.data or {}
-        if not previous:
-            return
-
-        sticky_keys = (
-            *_ES_STATUS_KEYS,
-            *_ES_MODE_EXTENDED_KEYS,
-        )
-
-        restored_keys: list[str] = []
-        for key in sticky_keys:
-            if key in device_status:
-                continue
-            previous_value = previous.get(key)
-            if isinstance(previous_value, (int, float)):
-                device_status[key] = previous_value
-                restored_keys.append(key)
-
-        if restored_keys:
-            _LOGGER.debug(
-                "Restored %d missing transient keys from previous snapshot: %s",
-                len(restored_keys),
-                ", ".join(restored_keys),
-            )
-
     def _normalize_pv_power_scaling(self, device_status: dict[str, Any]) -> None:
-        """Normalize PV power units if payload appears to be deciwatts.
-
-        Some devices/firmwares appear to report PV power in deciwatts for
-        individual channels while voltage/current are still in V/A.
-        We detect this by comparing reported power against V * I.
-        """
+        """Normalize PV power units if payload appears to be deciwatts."""
         for channel in range(1, 5):
             power_key = f"pv{channel}_power"
             voltage_key = f"pv{channel}_voltage"
@@ -320,16 +305,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             ratio = power_w / expected_w
             if ratio > 5 and abs((power_w / 10) - expected_w) / expected_w < 0.35:
-                normalized = round(power_w / 10, 1)
-                _LOGGER.debug(
-                    "Normalized %s from %s to %s W (V=%s, I=%s)",
-                    power_key,
-                    power_w,
-                    normalized,
-                    voltage,
-                    current,
-                )
-                device_status[power_key] = normalized
+                device_status[power_key] = round(power_w / 10, 1)
 
         aggregate_pv = device_status.get("pv_power")
         if isinstance(aggregate_pv, (int, float)):
@@ -359,15 +335,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 best_scaled_value = round(value / 10.0, 1)
 
                         if best_channel is not None and best_error < raw_error * 0.5:
-                            key = f"pv{best_channel}_power"
-                            _LOGGER.debug(
-                                "Normalized %s from %s to %s W using aggregate pv_power=%s",
-                                key,
-                                device_status.get(key),
-                                best_scaled_value,
-                                aggregate_w,
-                            )
-                            device_status[key] = best_scaled_value
+                            device_status[f"pv{best_channel}_power"] = best_scaled_value
 
         pv1_power = device_status.get("pv1_power")
         if not isinstance(pv1_power, (int, float)) or float(pv1_power) <= 0:
@@ -386,19 +354,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         ratio = float(pv1_power) / baseline
-        if not (6.5 <= ratio <= 13.5):
-            return
-
-        normalized = round(float(pv1_power) / 10.0, 1)
-        _LOGGER.debug(
-            "Normalized pv1_power from %s to %s W using PV1 10x outlier rule "
-            "(baseline=%.1f, ratio=%.2f)",
-            pv1_power,
-            normalized,
-            baseline,
-            ratio,
-        )
-        device_status["pv1_power"] = normalized
+        if 6.5 <= ratio <= 13.5:
+            device_status["pv1_power"] = round(float(pv1_power) / 10.0, 1)
 
     def _restore_previous_pv_if_missing(self, device_status: dict[str, Any]) -> None:
         """Keep previous PV snapshot when PV.GetStatus likely failed."""
@@ -431,7 +388,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             value = previous.get(key)
             if isinstance(value, (int, float)):
                 device_status[key] = value
-        _LOGGER.debug("Restored previous PV snapshot after transient PV.GetStatus failure")
 
     def _is_suspicious_zero_snapshot(self, device_status: dict[str, Any]) -> bool:
         """Detect likely transient all-zero/default frame."""
@@ -523,38 +479,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 identifiers={(DOMAIN, device_identifier)}
             )
             if device and device.name and old_ip in device.name:
-                new_device_name = device.name.replace(old_ip, new_ip)
-                _LOGGER.info(
-                    "Updating device name from %s to %s",
-                    device.name,
-                    new_device_name,
+                device_registry.async_update_device(
+                    device.id, name=device.name.replace(old_ip, new_ip)
                 )
-                device_registry.async_update_device(device.id, name=new_device_name)
 
         entity_registry = er.async_get(self.hass)
         entities = er.async_entries_for_config_entry(
             entity_registry, self.config_entry.entry_id
         )
 
-        updated_count = 0
         for entity_entry in entities:
             if entity_entry.name and old_ip in entity_entry.name:
-                new_name = entity_entry.name.replace(old_ip, new_ip)
-                _LOGGER.debug(
-                    "Updating entity %s name from %s to %s",
-                    entity_entry.entity_id,
-                    entity_entry.name,
-                    new_name,
-                )
                 entity_registry.async_update_entity(
-                    entity_entry.entity_id, name=new_name
+                    entity_entry.entity_id,
+                    name=entity_entry.name.replace(old_ip, new_ip),
                 )
-                updated_count += 1
-
-        if updated_count > 0:
-            _LOGGER.info(
-                "Updated %d entity name(s) to reflect new IP: %s -> %s",
-                updated_count,
-                old_ip,
-                new_ip,
-            )

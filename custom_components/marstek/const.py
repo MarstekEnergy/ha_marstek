@@ -20,19 +20,27 @@ PLATFORMS: Final[list[Platform]] = [
 DEFAULT_UDP_PORT: Final = 30000  # Default UDP port for Marstek devices
 DISCOVERY_TIMEOUT: Final = 10.0  # Wait 10s for each broadcast
 
+# Data categories for per-sensor freshness checks
+DATA_CATEGORY_ES: Final = "es"
+DATA_CATEGORY_PV: Final = "pv"
+DATA_CATEGORY_ENERGY: Final = "energy"
+DATA_CATEGORY_STATIC: Final = "static"
+
 # Integration options (config entry options)
 CONF_OPTION_SCAN_INTERVAL: Final = "scan_interval"
 CONF_OPTION_MEDIUM_SCAN_INTERVAL: Final = "medium_scan_interval"
 CONF_OPTION_REQUEST_DELAY: Final = "request_delay"
 CONF_OPTION_REQUEST_TIMEOUT: Final = "request_timeout"
-CONF_OPTION_FAILURES_BEFORE_UNAVAILABLE: Final = "failures_before_unavailable"
+CONF_OPTION_STALENESS_THRESHOLD: Final = "staleness_threshold"
+CONF_OPTION_UNAVAILABLE_AFTER: Final = "unavailable_after_seconds"
 
 # Defaults aligned with Marstek Open API community best practices
-DEFAULT_SCAN_INTERVAL: Final = 30  # seconds – fast tier (ES.GetMode, PV.GetStatus)
+DEFAULT_SCAN_INTERVAL: Final = 60  # seconds – fast tier (ES.GetMode, PV.GetStatus)
 DEFAULT_MEDIUM_SCAN_INTERVAL: Final = 300  # seconds – medium tier (ES.GetStatus)
 DEFAULT_REQUEST_DELAY: Final = 4.0  # seconds between consecutive UDP requests (WiFi-safe)
 DEFAULT_REQUEST_TIMEOUT: Final = 5.0  # seconds per request
-DEFAULT_FAILURES_BEFORE_UNAVAILABLE: Final = 3
+DEFAULT_STALENESS_THRESHOLD: Final = 3  # missed category updates before value → unknown
+DEFAULT_UNAVAILABLE_AFTER: Final = 600  # seconds without any success before unavailable
 
 MIN_SCAN_INTERVAL: Final = 10
 MAX_SCAN_INTERVAL: Final = 600
@@ -42,8 +50,10 @@ MIN_REQUEST_DELAY: Final = 2.0
 MAX_REQUEST_DELAY: Final = 10.0
 MIN_REQUEST_TIMEOUT: Final = 3.0
 MAX_REQUEST_TIMEOUT: Final = 30.0
-MIN_FAILURES_BEFORE_UNAVAILABLE: Final = 1
-MAX_FAILURES_BEFORE_UNAVAILABLE: Final = 20
+MIN_STALENESS_THRESHOLD: Final = 1
+MAX_STALENESS_THRESHOLD: Final = 10
+MIN_UNAVAILABLE_AFTER: Final = 120
+MAX_UNAVAILABLE_AFTER: Final = 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +64,8 @@ class MarstekOptions:
     medium_scan_interval: int
     request_delay: float
     request_timeout: float
-    failures_before_unavailable: int
+    staleness_threshold: int
+    unavailable_after_seconds: int
 
 
 def get_entry_options(config_entry: ConfigEntry) -> MarstekOptions:
@@ -75,10 +86,10 @@ def get_entry_options(config_entry: ConfigEntry) -> MarstekOptions:
         request_timeout=float(
             options.get(CONF_OPTION_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT)
         ),
-        failures_before_unavailable=int(
-            options.get(
-                CONF_OPTION_FAILURES_BEFORE_UNAVAILABLE,
-                DEFAULT_FAILURES_BEFORE_UNAVAILABLE,
-            )
+        staleness_threshold=int(
+            options.get(CONF_OPTION_STALENESS_THRESHOLD, DEFAULT_STALENESS_THRESHOLD)
+        ),
+        unavailable_after_seconds=int(
+            options.get(CONF_OPTION_UNAVAILABLE_AFTER, DEFAULT_UNAVAILABLE_AFTER)
         ),
     )

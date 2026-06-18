@@ -34,22 +34,25 @@ except ImportError:
             macaddress: str
 
 from .const import (
-    CONF_OPTION_FAILURES_BEFORE_UNAVAILABLE,
     CONF_OPTION_MEDIUM_SCAN_INTERVAL,
     CONF_OPTION_REQUEST_DELAY,
     CONF_OPTION_REQUEST_TIMEOUT,
     CONF_OPTION_SCAN_INTERVAL,
+    CONF_OPTION_STALENESS_THRESHOLD,
+    CONF_OPTION_UNAVAILABLE_AFTER,
     DOMAIN,
-    MAX_FAILURES_BEFORE_UNAVAILABLE,
     MAX_MEDIUM_SCAN_INTERVAL,
     MAX_REQUEST_DELAY,
     MAX_REQUEST_TIMEOUT,
     MAX_SCAN_INTERVAL,
-    MIN_FAILURES_BEFORE_UNAVAILABLE,
+    MAX_STALENESS_THRESHOLD,
+    MAX_UNAVAILABLE_AFTER,
     MIN_MEDIUM_SCAN_INTERVAL,
     MIN_REQUEST_DELAY,
     MIN_REQUEST_TIMEOUT,
     MIN_SCAN_INTERVAL,
+    MIN_STALENESS_THRESHOLD,
+    MIN_UNAVAILABLE_AFTER,
     get_entry_options,
 )
 
@@ -349,13 +352,23 @@ class MarstekOptionsFlowHandler(config_entries.OptionsFlow):
                         vol.Range(min=MIN_REQUEST_TIMEOUT, max=MAX_REQUEST_TIMEOUT),
                     ),
                     vol.Required(
-                        CONF_OPTION_FAILURES_BEFORE_UNAVAILABLE,
-                        default=options.failures_before_unavailable,
+                        CONF_OPTION_STALENESS_THRESHOLD,
+                        default=options.staleness_threshold,
                     ): vol.All(
                         vol.Coerce(int),
                         vol.Range(
-                            min=MIN_FAILURES_BEFORE_UNAVAILABLE,
-                            max=MAX_FAILURES_BEFORE_UNAVAILABLE,
+                            min=MIN_STALENESS_THRESHOLD,
+                            max=MAX_STALENESS_THRESHOLD,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_UNAVAILABLE_AFTER,
+                        default=options.unavailable_after_seconds,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_UNAVAILABLE_AFTER,
+                            max=MAX_UNAVAILABLE_AFTER,
                         ),
                     ),
                 }

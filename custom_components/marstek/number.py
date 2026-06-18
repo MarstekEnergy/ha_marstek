@@ -94,6 +94,11 @@ class MarstekPassivePowerNumber(
         return f"{device_id}_passive_power"
 
     @property
+    def available(self) -> bool:
+        """Return whether the device is reachable."""
+        return self.coordinator.is_device_reachable()
+
+    @property
     def native_value(self) -> float:
         """Return current configured value."""
         return self._value
