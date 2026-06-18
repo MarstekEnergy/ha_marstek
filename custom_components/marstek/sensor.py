@@ -414,7 +414,7 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
             device_info,
             "total_pv_input_power",
             config_entry,
-            data_category=DATA_CATEGORY_PV,
+            data_category=DATA_CATEGORY_ES,
         )
 
     @property
@@ -424,22 +424,37 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
 
     @property
     def native_value(self) -> StateType:
-        """Return the sum of PV1..PV4 power in watts."""
+        """Return total PV power, preferring ES.GetStatus aggregate like jaapp.
+
+        jaapp uses ``es.pv_power`` (ES.GetStatus) as authoritative solar power.
+        Summing PV1..PV4 from PV.GetStatus often over-reads (~4×) when inactive
+        channels report stale or deciwatt-scaled values.
+        """
         if not self._value_is_fresh() or not self.coordinator.data:
             return None
 
-        pv_values: list[float] = []
+        data = self.coordinator.data
+        aggregate = data.get("pv_power")
+        if isinstance(aggregate, (int, float)) and float(aggregate) >= 0:
+            return cast(StateType, round(float(aggregate), 1))
+
+        if not self.coordinator.is_category_fresh(DATA_CATEGORY_PV):
+            return None
+
+        total = 0.0
         for channel in range(1, 5):
-            value = self.coordinator.data.get(f"pv{channel}_power")
-            if isinstance(value, (int, float)):
-                pv_values.append(float(value))
+            power = data.get(f"pv{channel}_power")
+            voltage = data.get(f"pv{channel}_voltage")
+            if not isinstance(power, (int, float)):
+                continue
+            if isinstance(voltage, (int, float)) and float(voltage) <= 0:
+                continue
+            if float(power) <= 0:
+                continue
+            total += float(power)
 
-        if pv_values:
-            return cast(StateType, round(sum(pv_values), 1))
-
-        fallback = self.coordinator.data.get("pv_power")
-        if isinstance(fallback, (int, float)):
-            return cast(StateType, float(fallback))
+        if total > 0:
+            return cast(StateType, round(total, 1))
         return None
 
 
@@ -458,7 +473,7 @@ class MarstekPVAggregatePowerSensor(MarstekSensor):
     ) -> None:
         """Initialize PV aggregate power sensor."""
         super().__init__(
-            coordinator, device_info, "pv_power", config_entry, data_category=DATA_CATEGORY_ENERGY
+            coordinator, device_info, "pv_power", config_entry, data_category=DATA_CATEGORY_ES
         )
 
     @property
