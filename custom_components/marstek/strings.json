@@ -22,6 +22,28 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Marstek communication",
+        "description": "Tune polling to match your network. Do not poll faster than every 10 seconds. A 4 second delay between UDP requests is recommended on Wi-Fi.",
+        "data": {
+          "scan_interval": "Fast polling interval (seconds)",
+          "medium_scan_interval": "Medium polling interval (seconds)",
+          "request_delay": "Delay between UDP requests (seconds)",
+          "request_timeout": "Request timeout (seconds)",
+          "failures_before_unavailable": "Failures before unavailable"
+        },
+        "data_description": {
+          "scan_interval": "How often ES.GetMode and PV.GetStatus are polled (default: 30 s). Minimum: 10 s.",
+          "medium_scan_interval": "How often ES.GetStatus energy counters are refreshed (default: 300 s).",
+          "request_delay": "Pause between consecutive API calls within one poll cycle (default: 4 s).",
+          "request_timeout": "Per-request UDP timeout before retry (default: 5 s).",
+          "failures_before_unavailable": "Consecutive failed polls before entities become unavailable (default: 3)."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "battery_level": {
