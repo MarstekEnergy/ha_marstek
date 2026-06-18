@@ -427,8 +427,8 @@ class MarstekTotalPVPowerSensor(MarstekSensor):
         """Return total PV power, preferring ES.GetStatus aggregate like jaapp.
 
         jaapp uses ``es.pv_power`` (ES.GetStatus) as authoritative solar power.
-        Summing PV1..PV4 from PV.GetStatus often over-reads (~4×) when inactive
-        channels report stale or deciwatt-scaled values.
+        Summing PV1..PV4 from PV.GetStatus can over-read when inactive channels
+        report stale values; PV1 may be corrected against PV2–PV4 in the coordinator.
         """
         if not self._value_is_fresh() or not self.coordinator.data:
             return None

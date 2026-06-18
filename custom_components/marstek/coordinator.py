@@ -188,7 +188,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             options,
         )
         if isinstance(pv_response, dict):
-            device_status.update(parse_pv_status_response(pv_response))
+            pv_data = parse_pv_status_response(pv_response)
+            self._scale_pv1_power_if_needed(pv_data)
+            device_status.update(pv_data)
             self._touch_category("pv")
             had_success = True
         else:
@@ -205,8 +207,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 device_status = dict(self.data)
             elif not had_success:
                 device_status = {}
-        else:
-            self._normalize_pv_power_scaling(device_status)
 
         if had_success:
             self.last_message_timestamp = time.time()
@@ -289,78 +289,41 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     updated_ongrid = True
         return updated_ongrid
 
-    def _normalize_pv_power_scaling(self, device_status: dict[str, Any]) -> None:
-        """Normalize PV power units if payload appears to be deciwatts."""
-        for channel in range(1, 5):
-            power_key = f"pv{channel}_power"
-            voltage_key = f"pv{channel}_voltage"
-            current_key = f"pv{channel}_current"
+    @staticmethod
+    def _scale_pv1_power_if_needed(device_status: dict[str, Any]) -> None:
+        """Correct PV1 only when it reads ~10× higher than PV2–PV4.
 
-            power = device_status.get(power_key)
-            voltage = device_status.get(voltage_key)
-            current = device_status.get(current_key)
-
-            if not all(isinstance(v, (int, float)) for v in (power, voltage, current)):
-                continue
-
-            power_w = float(power)
-            expected_w = float(voltage) * float(current)
-            if expected_w <= 0:
-                continue
-
-            ratio = power_w / expected_w
-            if ratio > 5 and abs((power_w / 10) - expected_w) / expected_w < 0.35:
-                device_status[power_key] = round(power_w / 10, 1)
-
-        aggregate_pv = device_status.get("pv_power")
-        if isinstance(aggregate_pv, (int, float)):
-            aggregate_w = float(aggregate_pv)
-            if aggregate_w > 0:
-                channel_powers: dict[int, float] = {}
-                for channel in range(1, 5):
-                    value = device_status.get(f"pv{channel}_power")
-                    if isinstance(value, (int, float)):
-                        channel_powers[channel] = float(value)
-
-                if channel_powers:
-                    raw_sum = sum(channel_powers.values())
-                    raw_error = abs(raw_sum - aggregate_w)
-
-                    if raw_sum > aggregate_w * 2.0:
-                        best_channel: int | None = None
-                        best_scaled_value = 0.0
-                        best_error = raw_error
-
-                        for channel, value in channel_powers.items():
-                            candidate_sum = raw_sum - value + (value / 10.0)
-                            candidate_error = abs(candidate_sum - aggregate_w)
-                            if candidate_error < best_error:
-                                best_error = candidate_error
-                                best_channel = channel
-                                best_scaled_value = round(value / 10.0, 1)
-
-                        if best_channel is not None and best_error < raw_error * 0.5:
-                            device_status[f"pv{best_channel}_power"] = best_scaled_value
-
+        Some firmware builds report pv1_power in deciwatts while sibling
+        channels use watts (known Marstek Open API quirk). Compare against
+        active MPPT neighbours and divide by 10 only on a clear ~10× mismatch,
+        so corrected firmware values are left untouched.
+        """
         pv1_power = device_status.get("pv1_power")
         if not isinstance(pv1_power, (int, float)) or float(pv1_power) <= 0:
             return
 
         other_powers = [
-            float(device_status.get(f"pv{ch}_power"))
+            float(device_status[f"pv{ch}_power"])
             for ch in range(2, 5)
             if isinstance(device_status.get(f"pv{ch}_power"), (int, float))
-            and float(device_status.get(f"pv{ch}_power")) > 0
+            and float(device_status[f"pv{ch}_power"]) > 0
         ]
-        if len(other_powers) < 2:
+        if not other_powers:
             return
+
+        pv1_w = float(pv1_power)
         baseline = sum(other_powers) / len(other_powers)
         if baseline <= 0:
             return
 
-        ratio = float(pv1_power) / baseline
-        if 6.5 <= ratio <= 13.5:
-            device_status["pv1_power"] = round(float(pv1_power) / 10.0, 1)
+        ratio = pv1_w / baseline
+        # ~10× outlier vs. sibling MPPT channels (e.g. 6.5× .. 17×)
+        if not 6.5 <= ratio <= 17.0:
+            return
+
+        scaled = round(pv1_w / 10.0, 1)
+        if abs(scaled - baseline) < abs(pv1_w - baseline):
+            device_status["pv1_power"] = scaled
 
     def _restore_previous_pv_if_missing(self, device_status: dict[str, Any]) -> None:
         """Keep previous PV snapshot when PV.GetStatus likely failed."""
