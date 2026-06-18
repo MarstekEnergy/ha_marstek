@@ -39,6 +39,10 @@ _ES_MODE_EXTENDED_KEYS = (
 )
 
 _ES_STATUS_KEYS = (
+    "bat_soc",
+    "bat_power",
+    "ongrid_power",
+    "offgrid_power",
     "bat_cap",
     "pv_power",
     "total_pv_energy",
@@ -65,7 +69,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._options = get_entry_options(config_entry)
         self.category_last_updated: dict[str, float] = {}
         self.last_message_timestamp: float | None = None
-        self._last_medium_fetch: float = time.monotonic()
 
         super().__init__(
             hass,
@@ -125,11 +128,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elapsed = time.time() - self.last_message_timestamp
         return elapsed < self._options.unavailable_after_seconds
 
-    def _should_fetch_medium(self) -> bool:
-        """Return whether the medium-tier ES.GetStatus poll is due."""
-        elapsed = time.monotonic() - self._last_medium_fetch
-        return elapsed >= self._options.medium_scan_interval
-
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch device data; preserve previous values on partial UDP failures."""
         current_ip = self.device_ip
@@ -164,6 +162,25 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await asyncio.sleep(options.request_delay)
 
+        # jaapp reads grid power from ES.GetStatus on every fast poll (not ES.GetMode).
+        device_status["_es_status_ongrid_fresh"] = False
+        es_status_response = await self._send_with_retry(
+            get_es_status(0),
+            "ES.GetStatus",
+            current_ip,
+            options,
+        )
+        if isinstance(es_status_response, dict):
+            if self._merge_es_status_fields(device_status, es_status_response):
+                device_status["_es_status_ongrid_fresh"] = True
+            self._touch_category("es")
+            self._touch_category("energy")
+            had_success = True
+        else:
+            _LOGGER.debug("ES.GetStatus missed for %s", current_ip)
+
+        await asyncio.sleep(options.request_delay)
+
         pv_response = await self._send_with_retry(
             get_pv_status(0),
             "PV.GetStatus",
@@ -190,22 +207,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 device_status = {}
         else:
             self._normalize_pv_power_scaling(device_status)
-
-        if self._should_fetch_medium():
-            await asyncio.sleep(options.request_delay)
-            es_status_response = await self._send_with_retry(
-                get_es_status(0),
-                "ES.GetStatus",
-                current_ip,
-                options,
-            )
-            if isinstance(es_status_response, dict):
-                self._merge_es_status_fields(device_status, es_status_response)
-                self._touch_category("energy")
-                self._last_medium_fetch = time.monotonic()
-                had_success = True
-            else:
-                _LOGGER.debug("ES.GetStatus missed for %s", current_ip)
 
         if had_success:
             self.last_message_timestamp = time.time()
@@ -274,15 +275,19 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @staticmethod
     def _merge_es_status_fields(
         device_status: dict[str, Any], response: dict[str, Any]
-    ) -> None:
-        """Extract energy counters and aggregate PV power from ES.GetStatus."""
+    ) -> bool:
+        """Extract ES.GetStatus fields; return True if ongrid_power was updated."""
         result = response.get("result", {})
         if not isinstance(result, dict):
-            return
+            return False
+        updated_ongrid = False
         for key in _ES_STATUS_KEYS:
             value = result.get(key)
             if isinstance(value, (int, float)):
                 device_status[key] = value
+                if key == "ongrid_power":
+                    updated_ongrid = True
+        return updated_ongrid
 
     def _normalize_pv_power_scaling(self, device_status: dict[str, Any]) -> None:
         """Normalize PV power units if payload appears to be deciwatts."""
