@@ -192,7 +192,6 @@ class MarstekPowerSensor(MarstekSensor):
         super().__init__(
             coordinator, device_info, "battery_power", config_entry, data_category=DATA_CATEGORY_ES
         )
-        self._last_nonzero_power: int | None = None
 
     @property
     def name(self) -> str:
@@ -206,21 +205,7 @@ class MarstekPowerSensor(MarstekSensor):
             return None
 
         data = self.coordinator.data
-        power = self.coordinator.grid_export_power_w(data)
-
-        if power > 0:
-            self._last_nonzero_power = power
-            return power
-
-        if (
-            self._last_nonzero_power
-            and self._last_nonzero_power >= 50
-            and data.get("battery_status") in ("Selling", "Idle")
-        ):
-            return self._last_nonzero_power
-
-        self._last_nonzero_power = None
-        return 0
+        return self.coordinator.grid_export_power_w(data)
 
 
 class MarstekDeviceInfoSensor(MarstekSensor):

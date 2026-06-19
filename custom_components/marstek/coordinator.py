@@ -367,9 +367,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device_status["battery_status"] = "Idle"
 
     def _preserve_ongrid_if_zero_glitch(self, device_status: dict[str, Any]) -> None:
-        """Keep previous ongrid when a single poll reports 0 W during active export."""
+        """Hold one poll cycle when ongrid briefly hits 0 W during active export."""
         previous = self.data or {}
         if not previous:
+            return
+
+        if previous.get("_ongrid_glitch_hold"):
+            device_status["_ongrid_glitch_hold"] = False
             return
 
         previous_export = self.grid_export_power_w(previous)
@@ -379,6 +383,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_status["_es_status_ongrid_fresh"] = previous.get(
                 "_es_status_ongrid_fresh", False
             )
+            device_status["_ongrid_glitch_hold"] = True
 
     @staticmethod
     def _has_active_pv_snapshot(device_status: dict[str, Any]) -> bool:
