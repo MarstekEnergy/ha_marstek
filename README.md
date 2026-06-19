@@ -5,7 +5,7 @@ The Marstek integration is an official integration component for Home Assistant 
 
 ## Documentation
 
-- **[Marstek Open API – Glitches & Issues](docs/MARSTEK_OPEN_API_QUIRKS.md)** – Bekannte Firmware-/API-Eigenheiten (PV1 Deziwatt, unzuverlässige A-Werte, `ongrid`-Vorzeichen, UDP-Glitches) und wie die Integration damit umgeht. **Pflichtlektüre vor PV-/Grid-Änderungen.**
+- **[Marstek Open API – Glitches & Issues](docs/MARSTEK_OPEN_API_QUIRKS.md)** – Known firmware/API quirks (PV1 deciwatts, unreliable amp readings, `ongrid` sign convention, UDP glitches) and how the integration handles them. **Required reading before PV/Grid changes.**
 
 ## System Requirements
 
