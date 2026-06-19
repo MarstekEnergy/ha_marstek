@@ -51,6 +51,21 @@ _ES_STATUS_KEYS = (
     "total_load_energy",
 )
 
+_POWER_FLOW_KEYS: tuple[str, ...] = (
+    "ongrid_power",
+    "offgrid_power",
+    "battery_power",
+    "pv_power",
+    "pv1_power",
+    "pv2_power",
+    "pv3_power",
+    "pv4_power",
+    "a_power",
+    "b_power",
+    "c_power",
+    "total_power",
+)
+
 _BATTERY_POWER_THRESHOLD_W = 10
 _GRID_ACTIVITY_THRESHOLD_W = 50
 
@@ -242,7 +257,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 current_ip,
             )
             if self.data:
-                device_status = dict(self.data)
+                device_status = self._merge_after_suspicious_zero(
+                    device_status, self.data
+                )
+                self._update_battery_status(device_status)
             elif not had_success:
                 device_status = {}
 
@@ -513,6 +531,31 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         return current_zero_ratio >= 0.85 and previous_nonzero_ratio >= 0.25
+
+    @staticmethod
+    def _merge_after_suspicious_zero(
+        current: dict[str, Any], previous: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Revert a glitch frame but keep legitimate zero power readings.
+
+        When the battery is empty or export stops, the API often returns mostly
+        zeros. A full rollback would pin Grid Power to the last export value.
+        """
+        merged = dict(previous)
+        for key in _POWER_FLOW_KEYS:
+            value = current.get(key)
+            if isinstance(value, (int, float)):
+                merged[key] = value
+        for channel in range(1, 5):
+            for metric in ("power", "voltage", "current", "state"):
+                key = f"pv{channel}_{metric}"
+                value = current.get(key)
+                if isinstance(value, (int, float)):
+                    merged[key] = value
+        if "_es_status_ongrid_fresh" in current:
+            merged["_es_status_ongrid_fresh"] = current["_es_status_ongrid_fresh"]
+        merged.pop("_ongrid_glitch_hold", None)
+        return merged
 
     async def _async_config_entry_updated(
         self, hass: HomeAssistant, entry: ConfigEntry
