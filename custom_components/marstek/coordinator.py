@@ -68,6 +68,9 @@ _POWER_FLOW_KEYS: tuple[str, ...] = (
 
 _BATTERY_POWER_THRESHOLD_W = 10
 _GRID_ACTIVITY_THRESHOLD_W = 50
+# PV1 deciwatt quirk: compare watt readings against active PV2–PV4 only.
+_PV1_SIBLING_RATIO_MIN = 5.0
+_PV1_SIBLING_RATIO_MAX = 25.0
 
 
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -118,13 +121,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _positive_ongrid_export_device(self) -> bool:
         """Return whether this device reports grid export as positive ongrid_power."""
         device_type = self.config_entry.data.get("device_type", "").lower()
-        return "venus d" in device_type or "venus a" in device_type
+        return (
+            "venus d" in device_type
+            or "venus a" in device_type
+            or "venusd" in device_type.replace(" ", "")
+            or "venusa" in device_type.replace(" ", "")
+        )
 
     def grid_export_power_w(self, device_status: dict[str, Any]) -> int:
         """Return non-negative grid export power in watts from device status."""
         ongrid_power = device_status.get("ongrid_power")
         if not isinstance(ongrid_power, (int, float)):
-            return 0
+            ongrid_power = 0
 
         ongrid_w = float(ongrid_power)
         via_negative = max(0.0, -ongrid_w)
@@ -137,14 +145,36 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return int(via_positive)
                 if via_negative >= _GRID_ACTIVITY_THRESHOLD_W:
                     return int(via_negative)
+                mode_export = self._grid_export_from_mode_ongrid(device_status)
+                if mode_export is not None:
+                    return mode_export
                 return 0
             if via_negative >= _GRID_ACTIVITY_THRESHOLD_W:
                 return int(via_negative)
             return 0
 
         if self._positive_ongrid_export_device():
+            if via_positive >= _GRID_ACTIVITY_THRESHOLD_W:
+                return int(via_positive)
+            mode_export = self._grid_export_from_mode_ongrid(device_status)
+            if mode_export is not None:
+                return mode_export
             return int(via_positive)
         return int(via_negative) if via_negative >= _GRID_ACTIVITY_THRESHOLD_W else 0
+
+    def _grid_export_from_mode_ongrid(
+        self, device_status: dict[str, Any]
+    ) -> int | None:
+        """Fallback when ES.GetStatus ongrid is 0 but ES.GetMode still reports export."""
+        mode_ongrid = device_status.get("_ongrid_power_mode")
+        if not isinstance(mode_ongrid, (int, float)):
+            return None
+        mode_w = float(mode_ongrid)
+        if mode_w >= _GRID_ACTIVITY_THRESHOLD_W:
+            return int(mode_w)
+        if mode_w <= -_GRID_ACTIVITY_THRESHOLD_W:
+            return int(-mode_w)
+        return None
 
     def _apply_options(self) -> None:
         """Reload polling options from the config entry."""
@@ -201,6 +231,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             parsed = parse_es_mode_response(es_mode_response)
             if parsed.get("device_mode", "Unknown") != "Unknown":
                 device_status.update(parsed)
+                mode_ongrid = parsed.get("ongrid_power")
+                if isinstance(mode_ongrid, (int, float)):
+                    device_status["_ongrid_power_mode"] = mode_ongrid
                 self._merge_es_mode_extended_fields(device_status, es_mode_response)
                 self._touch_category("es")
                 had_success = True
@@ -238,7 +271,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if isinstance(pv_response, dict):
             pv_data = parse_pv_status_response(pv_response)
-            self._scale_pv1_power_if_needed(pv_data)
             device_status.update(pv_data)
             self._touch_category("pv")
             had_success = True
@@ -263,6 +295,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._update_battery_status(device_status)
             elif not had_success:
                 device_status = {}
+
+        self._scale_pv1_power_if_needed(device_status)
 
         if had_success:
             self.last_message_timestamp = time.time()
@@ -412,14 +446,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return True
         return False
 
-    @staticmethod
-    def _scale_pv1_power_if_needed(device_status: dict[str, Any]) -> None:
-        """Correct PV1 only when it reads ~10× higher than PV2–PV4.
+    def _scale_pv1_power_if_needed(self, device_status: dict[str, Any]) -> None:
+        """Correct PV1 when it reads ~10× higher than PV2–PV4 power (deciwatts).
 
-        Some firmware builds report pv1_power in deciwatts while sibling
-        channels use watts (known Marstek Open API quirk). Compare against
-        active MPPT neighbours and divide by 10 only on a clear ~10× mismatch,
-        so corrected firmware values are left untouched.
+        PV2–PV4 watt readings are reliable on Venus D/A; PV1 power is often ×10.
+        Voltage and current are ignored for this correction.
         """
         pv1_power = device_status.get("pv1_power")
         if not isinstance(pv1_power, (int, float)) or float(pv1_power) <= 0:
@@ -440,13 +471,21 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         ratio = pv1_w / baseline
-        # ~10× outlier vs. sibling MPPT channels (e.g. 6.5× .. 17×)
-        if not 6.5 <= ratio <= 17.0:
+        if not _PV1_SIBLING_RATIO_MIN <= ratio <= _PV1_SIBLING_RATIO_MAX:
             return
 
         scaled = round(pv1_w / 10.0, 1)
-        if abs(scaled - baseline) < abs(pv1_w - baseline):
-            device_status["pv1_power"] = scaled
+        if abs(scaled - baseline) >= abs(pv1_w - baseline):
+            return
+
+        _LOGGER.info(
+            "Scaled pv1_power from %s to %s W (%.1f× vs PV2–PV4 avg %s W)",
+            pv1_w,
+            scaled,
+            ratio,
+            round(baseline, 1),
+        )
+        device_status["pv1_power"] = scaled
 
     def _restore_previous_pv_if_missing(self, device_status: dict[str, Any]) -> None:
         """Keep previous PV snapshot when PV.GetStatus likely failed."""
