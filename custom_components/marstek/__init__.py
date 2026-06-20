@@ -18,13 +18,31 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DEFAULT_UDP_PORT, DOMAIN, PLATFORMS, get_entry_options
-from .coordinator import MarstekDataUpdateCoordinator
 from .scanner import MarstekScanner
-from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+# Runtime data and typed ConfigEntry defined early to prevent circular imports.
+# Submodules (services.py, button.py, select.py, sensor.py, number.py) do
+# "from . import MarstekConfigEntry" at their top level.
+@dataclass
+class MarstekRuntimeData:
+    """Runtime data for Marstek integration."""
+
+    udp_client: MarstekUDPClient
+    coordinator: "MarstekDataUpdateCoordinator"
+    device_info: dict[str, Any]
+
+
+type MarstekConfigEntry = ConfigEntry[MarstekRuntimeData]
+
+# Import runtime-dependent modules *after* publishing MarstekConfigEntry to break
+# the import cycle with services.py (and platform files that import the alias).
+from .coordinator import MarstekDataUpdateCoordinator
+from .services import async_setup_services
 
 
 def _normalize_mac(value: str | None) -> str:
@@ -161,18 +179,6 @@ async def _refresh_device_metadata_direct(
             updated_data.get("version"),
         )
     return updated_data
-
-
-@dataclass
-class MarstekRuntimeData:
-    """Runtime data for Marstek integration."""
-
-    udp_client: MarstekUDPClient
-    coordinator: MarstekDataUpdateCoordinator
-    device_info: dict[str, Any]
-
-
-type MarstekConfigEntry = ConfigEntry[MarstekRuntimeData]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

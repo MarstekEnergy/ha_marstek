@@ -14,9 +14,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import MarstekConfigEntry
+from typing import TYPE_CHECKING
+
 from .const import DEFAULT_UDP_PORT, DOMAIN
 from .coordinator import MarstekDataUpdateCoordinator
+
+if TYPE_CHECKING:
+    from . import MarstekConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 

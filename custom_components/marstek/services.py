@@ -18,9 +18,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 
-from . import MarstekConfigEntry
+from typing import TYPE_CHECKING
+
 from .const import DOMAIN
 from .coordinator import MarstekDataUpdateCoordinator
+
+if TYPE_CHECKING:
+    from . import MarstekConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 

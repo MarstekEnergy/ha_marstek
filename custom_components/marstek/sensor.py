@@ -44,7 +44,8 @@ except ImportError:
         ) -> None:
             """Define add_entities type."""
 
-from . import MarstekConfigEntry
+from typing import TYPE_CHECKING
+
 from .const import (
     DATA_CATEGORY_ENERGY,
     DATA_CATEGORY_ES,
@@ -53,6 +54,9 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import MarstekDataUpdateCoordinator
+
+if TYPE_CHECKING:
+    from . import MarstekConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
