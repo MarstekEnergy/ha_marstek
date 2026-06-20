@@ -14,6 +14,7 @@ PLATFORMS: Final[list[Platform]] = [
     Platform.SENSOR,
     Platform.SELECT,
     Platform.NUMBER,
+    Platform.BUTTON,
 ]
 
 # UDP Configuration

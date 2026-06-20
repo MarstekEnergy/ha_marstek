@@ -20,6 +20,7 @@ from homeassistant.helpers.typing import ConfigType
 from .const import DEFAULT_UDP_PORT, DOMAIN, PLATFORMS, get_entry_options
 from .coordinator import MarstekDataUpdateCoordinator
 from .scanner import MarstekScanner
+from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -248,6 +249,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register services only once for the integration
+    if not hass.data.get(DOMAIN + "_services_registered"):
+        await async_setup_services(hass)
+        hass.data[DOMAIN + "_services_registered"] = True
+
     return True
 
 
@@ -260,4 +266,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> 
     if unload_ok and entry.runtime_data:
         await entry.runtime_data.udp_client.async_cleanup()
 
+    # Services are integration-wide; we leave them registered until last unload
+    # (HA will clean on integration remove)
     return unload_ok

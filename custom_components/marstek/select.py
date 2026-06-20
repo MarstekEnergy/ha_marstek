@@ -15,6 +15,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import MarstekConfigEntry
+from .button import _build_mode_button_config
 from .const import DEFAULT_UDP_PORT, DOMAIN
 from .coordinator import MarstekDataUpdateCoordinator
 
@@ -30,28 +31,16 @@ VERIFY_DELAY = 0.6
 
 
 def _build_mode_command(mode: str) -> str:
-    """Build ES.SetMode command for target mode."""
-    if mode == "Auto":
-        config: dict[str, Any] = {"mode": "Auto", "auto_cfg": {"enable": 1}}
-    elif mode == "AI":
-        config = {"mode": "AI", "ai_cfg": {"enable": 1}}
+    """Build ES.SetMode command for target mode (uses shared builder for consistency)."""
+    config = _build_mode_button_config(mode)
+    # For select "Passive" and "Manual" we may want power, but services/number are preferred for control.
+    # Keep simple delegation; for full power use services.
+    if mode == "Passive":
+        # Select Passive -> default neutral, use number or service for real power
+        config = {"mode": "Passive", "passive_cfg": {"power": 0, "cd_time": 300}}
     elif mode == "Manual":
-        config = {
-            "mode": "Manual",
-            "manual_cfg": {
-                "time_num": 0,
-                "start_time": "00:00",
-                "end_time": "23:59",
-                "week_set": 127,
-                "power": 0,
-                "enable": 1,
-            },
-        }
-    elif mode == "Passive":
-        config = {"mode": "Passive", "passive_cfg": {"power": 100, "cd_time": 300}}
-    else:
-        config = {"mode": "UPS", "ups_cfg": {"enable": 1}}
-
+        # Neutral as in buttons
+        config = _build_mode_button_config("Manual")
     return build_command(CMD_ES_SET_MODE, {"id": 0, "config": config})
 
 
