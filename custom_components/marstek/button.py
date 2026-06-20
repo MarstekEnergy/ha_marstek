@@ -49,8 +49,13 @@ def _build_mode_button_config(mode: str) -> dict[str, Any]:
                 "enable": 0,
             },
         }
+    elif mode == "Passive":
+        # Neutral passive; real control via number entity or set_passive_mode service
+        return {"mode": "Passive", "passive_cfg": {"power": 0, "cd_time": 300}}
+    elif mode in ("Ups", "UPS"):
+        return {"mode": "UPS", "ups_cfg": {"enable": 1}}
     else:
-        # Fallback
+        # Fallback to Auto for safety
         return {"mode": "Auto", "auto_cfg": {"enable": 1}}
 
 

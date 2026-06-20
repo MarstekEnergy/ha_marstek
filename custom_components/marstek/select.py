@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from pymarstek import build_command, get_es_mode
@@ -36,15 +37,9 @@ VERIFY_DELAY = 0.6
 
 def _build_mode_command(mode: str) -> str:
     """Build ES.SetMode command for target mode (uses shared builder for consistency)."""
+    # Builder now handles Auto/AI/Manual/Passive/Ups with appropriate neutral cfgs.
+    # For real Passive power or Manual schedules, prefer the number entity + services.
     config = _build_mode_button_config(mode)
-    # For select "Passive" and "Manual" we may want power, but services/number are preferred for control.
-    # Keep simple delegation; for full power use services.
-    if mode == "Passive":
-        # Select Passive -> default neutral, use number or service for real power
-        config = {"mode": "Passive", "passive_cfg": {"power": 0, "cd_time": 300}}
-    elif mode == "Manual":
-        # Neutral as in buttons
-        config = _build_mode_button_config("Manual")
     return build_command(CMD_ES_SET_MODE, {"id": 0, "config": config})
 
 
@@ -85,6 +80,7 @@ class MarstekModeSelect(CoordinatorEntity[MarstekDataUpdateCoordinator], SelectE
         self._optimistic_option: str | None = None
         self._apply_task: asyncio.Task | None = None
         self._last_confirmed_option: str | None = None
+        self._last_confirmed_time: float = 0.0  # to protect recent user sets from immediate poll snap-back
 
         device_identifier = (
             device_info.get("ble_mac")
@@ -127,7 +123,16 @@ class MarstekModeSelect(CoordinatorEntity[MarstekDataUpdateCoordinator], SelectE
             return self._last_confirmed_option
         normalized = _normalize_mode_option(mode)
         if normalized is not None:
+            # Protect recent user-initiated mode change from immediate poll overwrite
+            # (common with UDP timing, device reporting lag, or concurrent polls).
+            if (
+                self._last_confirmed_option is not None
+                and normalized != self._last_confirmed_option
+                and (time.time() - self._last_confirmed_time) < 8
+            ):
+                return self._last_confirmed_option
             self._last_confirmed_option = normalized
+            self._last_confirmed_time = time.time()
             return normalized
         # Keep last stable mode during transient "unknown"/empty responses.
         return self._last_confirmed_option
@@ -200,15 +205,24 @@ class MarstekModeSelect(CoordinatorEntity[MarstekDataUpdateCoordinator], SelectE
         finally:
             await self.coordinator.udp_client.resume_polling(host)
 
-        if not success and previous_option in MODE_OPTIONS:
-            self._optimistic_option = previous_option
-            self._last_confirmed_option = previous_option
-            self.async_write_ha_state()
-        self._optimistic_option = None
-        if not success:
-            _LOGGER.warning("Failed to apply mode '%s' for device %s", option, host)
-        else:
+        if success:
+            # Push optimistic mode into coordinator data so other entities (e.g. device mode sensor)
+            # update immediately and the next poll has a chance to see the confirmed value.
+            if self.coordinator.data:
+                updated = dict(self.coordinator.data)
+                updated["device_mode"] = option
+                self.coordinator.async_set_updated_data(updated)
             self._last_confirmed_option = option
+            self._last_confirmed_time = time.time()
+        else:
+            if previous_option in MODE_OPTIONS:
+                self._optimistic_option = previous_option
+                self._last_confirmed_option = previous_option
+                self._last_confirmed_time = time.time()
+                self.async_write_ha_state()
+            _LOGGER.warning("Failed to apply mode '%s' for device %s", option, host)
+
+        self._optimistic_option = None
         await self.coordinator.async_request_refresh()
 
     async def _verify_mode(self, expected_option: str, host: str) -> bool:
