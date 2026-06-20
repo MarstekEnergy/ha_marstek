@@ -454,6 +454,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         pv1_power = device_status.get("pv1_power")
         if not isinstance(pv1_power, (int, float)) or float(pv1_power) <= 0:
+            _LOGGER.debug("PV1 scaling skipped: pv1_power=%s (not > 0)", pv1_power)
             return
 
         other_powers = [
@@ -463,19 +464,52 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and float(device_status[f"pv{ch}_power"]) > 0
         ]
         if not other_powers:
+            _LOGGER.debug(
+                "PV1 scaling skipped: no positive PV2-PV4 power (pv1=%s, pv2-4 raw=%s)",
+                pv1_power,
+                [device_status.get(f"pv{ch}_power") for ch in range(2, 5)],
+            )
             return
 
         pv1_w = float(pv1_power)
         baseline = sum(other_powers) / len(other_powers)
         if baseline <= 0:
+            _LOGGER.debug("PV1 scaling skipped: baseline=0 (siblings=%s)", other_powers)
             return
 
         ratio = pv1_w / baseline
-        if not _PV1_SIBLING_RATIO_MIN <= ratio <= _PV1_SIBLING_RATIO_MAX:
+
+        # Low-power tolerance (evening / early morning): when baseline is small the
+        # measured ratio can fluctuate. Be a bit more lenient so we don't miss
+        # the deciwatt case on Venus D when only low power is present.
+        if baseline < 80:
+            min_ratio = 3.0
+            max_ratio = 30.0
+        else:
+            min_ratio = _PV1_SIBLING_RATIO_MIN
+            max_ratio = _PV1_SIBLING_RATIO_MAX
+
+        if not min_ratio <= ratio <= max_ratio:
+            _LOGGER.debug(
+                "PV1 scaling skipped by ratio: pv1=%.1f, siblings=%s, baseline=%.1f, ratio=%.1f (effective %.1f-%.1f, low-power=%s)",
+                pv1_w,
+                other_powers,
+                baseline,
+                ratio,
+                min_ratio,
+                max_ratio,
+                baseline < 80,
+            )
             return
 
         scaled = round(pv1_w / 10.0, 1)
         if abs(scaled - baseline) >= abs(pv1_w - baseline):
+            _LOGGER.debug(
+                "PV1 scaling skipped by closeness: raw=%.1f scaled=%.1f baseline=%.1f (scaled not closer)",
+                pv1_w,
+                scaled,
+                baseline,
+            )
             return
 
         _LOGGER.info(

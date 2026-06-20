@@ -48,7 +48,7 @@ ioBroker/Domoticz community, and our own Venus D field tests.
 
 **Voltage and current are ignored** – on Venus D/A, amp readings for PV1 are unreliable; PV2–PV4 watts are the reference.
 
-**Limitation:** If only PV1 is active (early morning, other channels still 0), there is no reference → PV1 stays unscaled until PV2+ comes online.
+**Limitation:** If only PV1 is active or the other channels have very low/zero power (early morning or evening at low irradiance), there is no reliable reference → PV1 may stay unscaled (or show wrong value) until multiple channels have decent positive power. This is the most common reason for "PV1 plötzlich falsch skaliert" reports.
 
 **Anti-patterns:**
 
