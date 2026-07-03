@@ -1,0 +1,135 @@
+# Services for advanced mode and schedule control (modeled after jaapp patterns)
+# These provide sustainable control for Manual schedules and Passive mode.
+
+set_passive_mode:
+  name: Set Passive Mode
+  description: >
+    Set the device to Passive mode with a specific power target for a duration.
+    Negative power = charge the battery, positive = discharge.
+  fields:
+    device_id:
+      name: Device ID
+      description: The device to control (from the Marstek integration).
+      required: true
+      selector:
+        device:
+          integration: marstek
+    power:
+      name: Power
+      description: Target power in watts (negative for charge, positive for discharge).
+      required: true
+      selector:
+        number:
+          min: -10000
+          max: 10000
+          unit_of_measurement: W
+    duration:
+      name: Duration
+      description: How long to apply the passive power (seconds, max 24h).
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: s
+
+set_manual_schedule:
+  name: Set Manual Schedule
+  description: >
+    Configure one manual schedule slot. Use this for time-based manual power control.
+    Power: negative=charge, positive=discharge, 0=no limit.
+  fields:
+    device_id:
+      name: Device ID
+      description: Target Marstek device.
+      required: true
+      selector:
+        device:
+          integration: marstek
+    time_num:
+      name: Slot
+      description: Schedule slot number (0-9).
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 9
+    start_time:
+      name: Start Time
+      description: Start time (HH:MM).
+      required: true
+      selector:
+        time:
+    end_time:
+      name: End Time
+      description: End time (HH:MM).
+      required: true
+      selector:
+        time:
+    days:
+      name: Days
+      description: Days of week the schedule applies.
+      required: false
+      default:
+        - mon
+        - tue
+        - wed
+        - thu
+        - fri
+        - sat
+        - sun
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    power:
+      name: Power
+      description: Power limit/target in watts.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: -10000
+          max: 10000
+          unit_of_measurement: W
+    enabled:
+      name: Enabled
+      description: Whether this schedule slot is active.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+set_manual_schedules:
+  name: Set Multiple Manual Schedules
+  description: Set several manual schedule slots at once.
+  fields:
+    device_id:
+      name: Device ID
+      required: true
+      selector:
+        device:
+          integration: marstek
+    schedules:
+      name: Schedules
+      required: true
+      selector:
+        object:
+
+clear_manual_schedules:
+  name: Clear Manual Schedules
+  description: Disable all manual schedule slots.
+  fields:
+    device_id:
+      name: Device ID
+      required: true
+      selector:
+        device:
+          integration: marstek

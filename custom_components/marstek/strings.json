@@ -22,6 +22,32 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Marstek communication",
+        "description": "Tune polling to match your network. Default fast interval is 60 seconds. A 4 second delay between UDP requests is recommended on Wi-Fi.",
+        "data": {
+          "scan_interval": "Fast polling interval (seconds)",
+          "medium_scan_interval": "Medium polling interval (seconds)",
+          "request_delay": "Delay between UDP requests (seconds)",
+          "request_timeout": "Request timeout (seconds)",
+          "staleness_threshold": "Stale update cycles before unknown",
+          "unavailable_after_seconds": "Unavailable after (seconds)",
+          "startup_delay": "Startup delay before first poll (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often ES.GetMode and PV.GetStatus are polled (default: 60 s). Minimum: 10 s.",
+          "medium_scan_interval": "How often ES.GetStatus energy counters are refreshed (default: 300 s).",
+          "request_delay": "Pause between consecutive API calls within one poll cycle (default: 4 s).",
+          "request_timeout": "Per-request UDP timeout before retry (default: 5 s).",
+          "staleness_threshold": "Missed category updates before a sensor shows unknown (default: 3 cycles).",
+          "unavailable_after_seconds": "Seconds without any successful poll before entities become unavailable (default: 600 s).",
+          "startup_delay": "Wait after Home Assistant load before the first UDP poll (default: 45 s). Helps avoid disturbing feed-in on reload."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "battery_level": {

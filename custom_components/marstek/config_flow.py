@@ -12,6 +12,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_MAC
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import format_mac
 
 try:
@@ -32,7 +33,31 @@ except ImportError:
             hostname: str
             macaddress: str
 
-from .const import DOMAIN
+from .const import (
+    CONF_OPTION_MEDIUM_SCAN_INTERVAL,
+    CONF_OPTION_REQUEST_DELAY,
+    CONF_OPTION_REQUEST_TIMEOUT,
+    CONF_OPTION_SCAN_INTERVAL,
+    CONF_OPTION_STALENESS_THRESHOLD,
+    CONF_OPTION_STARTUP_DELAY,
+    CONF_OPTION_UNAVAILABLE_AFTER,
+    DOMAIN,
+    MAX_MEDIUM_SCAN_INTERVAL,
+    MAX_REQUEST_DELAY,
+    MAX_REQUEST_TIMEOUT,
+    MAX_SCAN_INTERVAL,
+    MAX_STARTUP_DELAY,
+    MAX_STALENESS_THRESHOLD,
+    MAX_UNAVAILABLE_AFTER,
+    MIN_MEDIUM_SCAN_INTERVAL,
+    MIN_REQUEST_DELAY,
+    MIN_REQUEST_TIMEOUT,
+    MIN_SCAN_INTERVAL,
+    MIN_STARTUP_DELAY,
+    MIN_STALENESS_THRESHOLD,
+    MIN_UNAVAILABLE_AFTER,
+    get_entry_options,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -269,3 +294,93 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # No existing entry found, continue with user flow
         return await self.async_step_user()
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> MarstekOptionsFlowHandler:
+        """Return the options flow handler."""
+        return MarstekOptionsFlowHandler(config_entry)
+
+
+class MarstekOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle Marstek integration options."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self._config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Manage Marstek polling and communication options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = get_entry_options(self._config_entry)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_OPTION_SCAN_INTERVAL,
+                        default=options.scan_interval,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_MEDIUM_SCAN_INTERVAL,
+                        default=options.medium_scan_interval,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_MEDIUM_SCAN_INTERVAL,
+                            max=MAX_MEDIUM_SCAN_INTERVAL,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_REQUEST_DELAY,
+                        default=options.request_delay,
+                    ): vol.All(
+                        vol.Coerce(float),
+                        vol.Range(min=MIN_REQUEST_DELAY, max=MAX_REQUEST_DELAY),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_REQUEST_TIMEOUT,
+                        default=options.request_timeout,
+                    ): vol.All(
+                        vol.Coerce(float),
+                        vol.Range(min=MIN_REQUEST_TIMEOUT, max=MAX_REQUEST_TIMEOUT),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_STALENESS_THRESHOLD,
+                        default=options.staleness_threshold,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_STALENESS_THRESHOLD,
+                            max=MAX_STALENESS_THRESHOLD,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_UNAVAILABLE_AFTER,
+                        default=options.unavailable_after_seconds,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_UNAVAILABLE_AFTER,
+                            max=MAX_UNAVAILABLE_AFTER,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_OPTION_STARTUP_DELAY,
+                        default=options.startup_delay,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=MIN_STARTUP_DELAY, max=MAX_STARTUP_DELAY),
+                    ),
+                }
+            ),
+        )

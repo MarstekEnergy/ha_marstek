@@ -20,8 +20,11 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Scanner runs discovery every 60 seconds to detect IP changes
-SCAN_INTERVAL = timedelta(seconds=60)
+# Scanner runs discovery periodically to detect IP changes.
+# 300s (5 min) is a good balance — IP changes are rare and frequent
+# broadcasts add unnecessary UDP load that can disturb the device
+# (see MARSTEK_OPEN_API_QUIRKS.md "API burst disturbs device").
+SCAN_INTERVAL = timedelta(seconds=300)
 
 
 class MarstekScanner:
@@ -56,8 +59,8 @@ class MarstekScanner:
             cancel_on_shutdown=True,
         )
 
-        # Execute initial scan immediately
-        self.async_scan()
+        # First scan runs after one interval — avoids UDP burst on HA restart.
+        # The interval itself is intentionally slow to avoid constant discovery traffic.
 
     @callback
     def async_scan(self, now=None) -> None:

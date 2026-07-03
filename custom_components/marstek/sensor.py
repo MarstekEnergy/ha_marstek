@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
@@ -13,7 +13,9 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
     UnitOfPower,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -42,9 +44,19 @@ except ImportError:
         ) -> None:
             """Define add_entities type."""
 
-from . import MarstekConfigEntry
-from .const import DOMAIN
+from typing import TYPE_CHECKING
+
+from .const import (
+    DATA_CATEGORY_ENERGY,
+    DATA_CATEGORY_ES,
+    DATA_CATEGORY_PV,
+    DATA_CATEGORY_STATIC,
+    DOMAIN,
+)
 from .coordinator import MarstekDataUpdateCoordinator
+
+if TYPE_CHECKING:
+    from . import MarstekConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,12 +72,15 @@ class MarstekSensor(CoordinatorEntity[MarstekDataUpdateCoordinator], SensorEntit
         device_info: dict[str, Any],
         sensor_type: str,
         config_entry: ConfigEntry | None = None,
+        *,
+        data_category: str | None = None,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._device_info = device_info
         self._sensor_type = sensor_type
         self._config_entry = config_entry
+        self._data_category = data_category
         # Use BLE-MAC as device identifier for stability (beardhatcode & mik-laj feedback)
         # BLE-MAC is more stable than IP and ensures device history continuity
         device_identifier = (
@@ -74,15 +89,9 @@ class MarstekSensor(CoordinatorEntity[MarstekDataUpdateCoordinator], SensorEntit
             or device_info.get("wifi_mac")
             or device_info["ip"]
         )
-        # Get current IP for device name (supports dynamic IP updates)
-        device_ip = (
-            config_entry.data.get(CONF_HOST)
-            if config_entry
-            else device_info.get("ip", "Unknown")
-        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_identifier)},
-            name=f"Marstek {device_info['device_type']} v{device_info['version']} ({device_ip})",
+            name=f"Marstek {device_info['device_type']}",
             manufacturer="Marstek",
             model=device_info["device_type"],
             sw_version=str(device_info["version"]),
@@ -114,12 +123,29 @@ class MarstekSensor(CoordinatorEntity[MarstekDataUpdateCoordinator], SensorEntit
         """Return the name of the sensor."""
         return self._sensor_type.replace("_", " ").title()
 
+    def _value_is_fresh(self) -> bool:
+        """Return whether this sensor's data category is fresh enough to display."""
+        if not self.coordinator.is_device_reachable():
+            return False
+        if self._data_category is None:
+            return self.coordinator.data is not None
+        return self.coordinator.is_category_fresh(self._data_category)
+
+    def _read_value(self, key: str | None = None) -> Any:
+        """Read a coordinator value when device and category are fresh."""
+        if not self._value_is_fresh() or not self.coordinator.data:
+            return None
+        return self.coordinator.data.get(key or self._sensor_type)
+
+    @property
+    def available(self) -> bool:
+        """Stay available during short outages; unavailable only after long silence."""
+        return self.coordinator.is_device_reachable()
+
     @property
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        if not self.coordinator.data:
-            return None
-        value = self.coordinator.data.get(self._sensor_type)
+        value = self._read_value()
         if isinstance(value, (int, float, str)):
             return cast(StateType, value)
         return None
@@ -140,14 +166,17 @@ class MarstekBatterySensor(MarstekSensor):
         config_entry: ConfigEntry | None = None,
     ) -> None:
         """Initialize the battery sensor."""
-        super().__init__(coordinator, device_info, "battery_soc", config_entry)
+        super().__init__(
+            coordinator, device_info, "battery_soc", config_entry, data_category=DATA_CATEGORY_ES
+        )
 
     @property
     def native_value(self) -> StateType:
         """Return the battery level."""
-        if not self.coordinator.data:
-            return None
-        return int(self.coordinator.data.get("battery_soc", 0))
+        value = self._read_value("battery_soc")
+        if isinstance(value, (int, float)):
+            return int(value)
+        return None
 
 
 class MarstekPowerSensor(MarstekSensor):
@@ -164,7 +193,9 @@ class MarstekPowerSensor(MarstekSensor):
         config_entry: ConfigEntry | None = None,
     ) -> None:
         """Initialize the power sensor."""
-        super().__init__(coordinator, device_info, "battery_power", config_entry)
+        super().__init__(
+            coordinator, device_info, "battery_power", config_entry, data_category=DATA_CATEGORY_ES
+        )
 
     @property
     def name(self) -> str:
@@ -173,10 +204,12 @@ class MarstekPowerSensor(MarstekSensor):
 
     @property
     def native_value(self) -> StateType:
-        """Return the battery power."""
-        if not self.coordinator.data:
+        """Return grid feed-in power (non-negative watts)."""
+        if not self._value_is_fresh() or not self.coordinator.data:
             return None
-        return int(self.coordinator.data.get("battery_power", 0))
+
+        data = self.coordinator.data
+        return self.coordinator.grid_export_power_w(data)
 
 
 class MarstekDeviceInfoSensor(MarstekSensor):
@@ -192,7 +225,9 @@ class MarstekDeviceInfoSensor(MarstekSensor):
         config_entry: ConfigEntry | None = None,
     ) -> None:
         """Initialize the device info sensor."""
-        super().__init__(coordinator, device_info, info_type, config_entry)
+        super().__init__(
+            coordinator, device_info, info_type, config_entry, data_category=DATA_CATEGORY_STATIC
+        )
         self._info_type = info_type
         self._attr_icon = "mdi:information"
         self._attr_device_class = None
@@ -246,12 +281,23 @@ class MarstekDeviceModeSensor(MarstekSensor):
         config_entry: ConfigEntry | None = None,
     ) -> None:
         """Initialize the device mode sensor."""
-        super().__init__(coordinator, device_info, "device_mode", config_entry)
+        super().__init__(
+            coordinator, device_info, "device_mode", config_entry, data_category=DATA_CATEGORY_ES
+        )
 
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
         return "Device Mode"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return last known device mode; keep value across short ES data gaps."""
+        if self.coordinator.data:
+            value = self.coordinator.data.get("device_mode")
+            if isinstance(value, str) and value:
+                return cast(StateType, value)
+        return None
 
 
 class MarstekBatteryStatusSensor(MarstekSensor):
@@ -268,7 +314,9 @@ class MarstekBatteryStatusSensor(MarstekSensor):
         config_entry: ConfigEntry | None = None,
     ) -> None:
         """Initialize the battery status sensor."""
-        super().__init__(coordinator, device_info, "battery_status", config_entry)
+        super().__init__(
+            coordinator, device_info, "battery_status", config_entry, data_category=DATA_CATEGORY_ES
+        )
 
     @property
     def name(self) -> str:
@@ -289,7 +337,9 @@ class MarstekPVSensor(MarstekSensor):
     ) -> None:
         """Initialize the PV sensor."""
         sensor_key = f"pv{pv_channel}_{metric_type}"
-        super().__init__(coordinator, device_info, sensor_key, config_entry)
+        super().__init__(
+            coordinator, device_info, sensor_key, config_entry, data_category=DATA_CATEGORY_PV
+        )
         self._pv_channel = pv_channel
         self._metric_type = metric_type
 
@@ -321,12 +371,344 @@ class MarstekPVSensor(MarstekSensor):
     @property
     def native_value(self) -> StateType:
         """Return the PV metric value."""
-        if not self.coordinator.data:
-            return None
-        value = self.coordinator.data.get(self._sensor_type)
+        value = self._read_value()
         if isinstance(value, (int, float)):
             return cast(StateType, value)
         return None
+
+
+class MarstekTotalPVPowerSensor(MarstekSensor):
+    """Representation of total PV input power."""
+
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:solar-power"
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize total PV power sensor."""
+        super().__init__(
+            coordinator,
+            device_info,
+            "total_pv_input_power",
+            config_entry,
+            data_category=DATA_CATEGORY_PV,
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Total PV Input Power"
+
+    @staticmethod
+    def _sum_pv_channel_power(data: dict[str, Any]) -> float:
+        """Sum MPPT channel power from PV.GetStatus (after coordinator scaling)."""
+        total = 0.0
+        for channel in range(1, 5):
+            power = data.get(f"pv{channel}_power")
+            if isinstance(power, (int, float)) and float(power) > 0:
+                total += float(power)
+        return total
+
+    def _pv_snapshot_usable(self, data: dict[str, Any]) -> bool:
+        """Return whether retained per-channel PV data should be shown."""
+        if self.coordinator.is_category_fresh(DATA_CATEGORY_PV):
+            return True
+        for channel in range(1, 5):
+            voltage = data.get(f"pv{channel}_voltage")
+            if isinstance(voltage, (int, float)) and float(voltage) > 0:
+                return True
+        return False
+
+    @property
+    def native_value(self) -> StateType:
+        """Return total PV power as the sum of PV1–PV4 from PV.GetStatus.
+
+        ES.GetStatus ``pv_power`` is unreliable on Venus D/A (often stuck at 0);
+        use sensor ``PV Power (ES)`` for the raw ES field.
+        """
+        if not self.coordinator.is_device_reachable() or not self.coordinator.data:
+            return None
+
+        data = self.coordinator.data
+        if not self._pv_snapshot_usable(data):
+            return None
+
+        return cast(StateType, round(self._sum_pv_channel_power(data), 1))
+
+
+class MarstekPVAggregatePowerSensor(MarstekSensor):
+    """Representation of PV aggregate power from ES.GetStatus."""
+
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:solar-power"
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize PV aggregate power sensor."""
+        super().__init__(
+            coordinator, device_info, "pv_power", config_entry, data_category=DATA_CATEGORY_ES
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "PV Power (ES)"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return aggregate PV power from ES.GetStatus."""
+        value = self._read_value("pv_power")
+        if isinstance(value, (int, float)):
+            return cast(StateType, float(value))
+        return None
+
+
+class MarstekEnergySensor(MarstekSensor):
+    """Representation of a Marstek energy counter sensor."""
+
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:lightning-bolt"
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        sensor_type: str,
+        display_name: str,
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize the energy sensor."""
+        super().__init__(coordinator, device_info, sensor_type, config_entry)
+        self._display_name = display_name
+        self._data_category = (
+            DATA_CATEGORY_ES
+            if sensor_type in {"input_energy", "output_energy"}
+            else DATA_CATEGORY_ENERGY
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return self._display_name
+
+    @property
+    def native_value(self) -> StateType:
+        """Return energy in kWh."""
+        value = self._read_value(self._sensor_type)
+        if not isinstance(value, (int, float)):
+            return None
+
+        if self._sensor_type in {"input_energy", "output_energy"}:
+            return cast(StateType, round(float(value) / 10000, 3))
+
+        return cast(StateType, round(float(value) / 1000, 3))
+
+
+class MarstekCapacitySensor(MarstekSensor):
+    """Representation of a Marstek battery capacity sensor."""
+
+    _attr_native_unit_of_measurement = "Wh"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:battery-high"
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize capacity sensor."""
+        super().__init__(
+            coordinator, device_info, "bat_cap", config_entry, data_category=DATA_CATEGORY_ENERGY
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Battery Capacity"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return battery capacity in Wh."""
+        value = self._read_value("bat_cap")
+        if isinstance(value, (int, float)):
+            return cast(StateType, int(value))
+        return None
+
+
+class MarstekBatteryStoredEnergySensor(MarstekSensor):
+    """Representation of current battery stored energy (derived)."""
+
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_icon = "mdi:battery-medium"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize battery stored energy sensor."""
+        super().__init__(
+            coordinator,
+            device_info,
+            "battery_stored_energy",
+            config_entry,
+            data_category=DATA_CATEGORY_ES,
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Battery Stored Energy"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return current battery stored energy in kWh."""
+        if not self.coordinator.is_device_reachable() or not self.coordinator.data:
+            return None
+        if not self.coordinator.is_category_fresh(DATA_CATEGORY_ES):
+            return None
+        if not self.coordinator.is_category_fresh(DATA_CATEGORY_ENERGY):
+            return None
+
+        capacity_wh = self.coordinator.data.get("bat_cap")
+        soc_percent = self.coordinator.data.get("battery_soc")
+        if not isinstance(capacity_wh, (int, float)) or not isinstance(
+            soc_percent, (int, float)
+        ):
+            return None
+
+        if capacity_wh < 0:
+            return None
+
+        stored_kwh = (float(capacity_wh) * float(soc_percent) / 100.0) / 1000.0
+        return cast(StateType, round(stored_kwh, 3))
+
+
+class MarstekCTStateSensor(MarstekSensor):
+    """Representation of CT state sensor.
+
+    CT state is a diagnostic status (connection/health of the CT sensor).
+    We show the last known value as long as the device is reachable, even
+    during short periods without fresh ES data (to avoid flapping to unknown
+    on transient poll misses). Only falls back to unknown if we never
+    received a value.
+    """
+
+    _attr_icon = "mdi:counter"
+    _attr_device_class = None
+    _attr_state_class = None
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize CT state sensor."""
+        super().__init__(
+            coordinator, device_info, "ct_state", config_entry, data_category=DATA_CATEGORY_ES
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "CT State"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return last known CT state; do not blank to None on short staleness."""
+        if self.coordinator.data:
+            value = self.coordinator.data.get("ct_state")
+            if value is not None:
+                return cast(StateType, value)
+        # Only if we truly have no data at all
+        return None
+
+
+class MarstekMeterPowerSensor(MarstekSensor):
+    """Representation of meter channel power sensor."""
+
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:flash"
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        sensor_type: str,
+        display_name: str,
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize meter power sensor."""
+        super().__init__(coordinator, device_info, sensor_type, config_entry)
+        self._display_name = display_name
+        self._data_category = DATA_CATEGORY_ES
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return self._display_name
+
+    @property
+    def native_value(self) -> StateType:
+        """Return meter power in watts."""
+        value = self._read_value(self._sensor_type)
+        if isinstance(value, (int, float)):
+            return cast(StateType, float(value))
+        return None
+
+
+class MarstekLastMessageSensor(MarstekSensor):
+    """Diagnostic sensor: seconds since the last successful device poll."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(
+        self,
+        coordinator: MarstekDataUpdateCoordinator,
+        device_info: dict[str, Any],
+        config_entry: ConfigEntry | None = None,
+    ) -> None:
+        """Initialize last-message diagnostic sensor."""
+        super().__init__(
+            coordinator,
+            device_info,
+            "last_message_seconds",
+            config_entry,
+            data_category=DATA_CATEGORY_STATIC,
+        )
+
+    @property
+    def name(self) -> str:
+        """Return the name of the sensor."""
+        return "Last message received"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return seconds since the last successful poll."""
+        seconds = self.coordinator.get_seconds_since_last_message()
+        if seconds is None:
+            return None
+        return cast(StateType, seconds)
 
 
 async def async_setup_entry(
@@ -343,9 +725,13 @@ async def async_setup_entry(
 
     sensors: list[MarstekSensor] = [
         MarstekBatterySensor(coordinator, device_info, config_entry),
+        MarstekCapacitySensor(coordinator, device_info, config_entry),
+        MarstekBatteryStoredEnergySensor(coordinator, device_info, config_entry),
         MarstekPowerSensor(coordinator, device_info, config_entry),
         MarstekDeviceModeSensor(coordinator, device_info, config_entry),
+        MarstekCTStateSensor(coordinator, device_info, config_entry),
         MarstekBatteryStatusSensor(coordinator, device_info, config_entry),
+        MarstekLastMessageSensor(coordinator, device_info, config_entry),
         MarstekDeviceInfoSensor(coordinator, device_info, "device_ip", config_entry),
         MarstekDeviceInfoSensor(
             coordinator, device_info, "device_version", config_entry
@@ -359,6 +745,32 @@ async def async_setup_entry(
         MarstekPVSensor(coordinator, device_info, pv_channel, metric_type, config_entry)
         for pv_channel in range(1, 5)
         for metric_type in ("power", "voltage", "current", "state")
+    )
+    sensors.append(MarstekTotalPVPowerSensor(coordinator, device_info, config_entry))
+    sensors.append(MarstekPVAggregatePowerSensor(coordinator, device_info, config_entry))
+    sensors.extend(
+        MarstekMeterPowerSensor(
+            coordinator, device_info, sensor_type, display_name, config_entry
+        )
+        for sensor_type, display_name in (
+            ("a_power", "CT A Power"),
+            ("b_power", "CT B Power"),
+            ("c_power", "CT C Power"),
+            ("total_power", "CT Total Power"),
+        )
+    )
+    sensors.extend(
+        MarstekEnergySensor(
+            coordinator, device_info, sensor_type, display_name, config_entry
+        )
+        for sensor_type, display_name in (
+            ("total_pv_energy", "Total PV Energy"),
+            ("total_grid_output_energy", "Total Grid Output Energy"),
+            ("total_grid_input_energy", "Total Grid Input Energy"),
+            ("total_load_energy", "Total Load Energy"),
+            ("input_energy", "Input Energy"),
+            ("output_energy", "Output Energy"),
+        )
     )
 
     _LOGGER.info("Device %s sensors set up, total %d", device_ip, len(sensors))

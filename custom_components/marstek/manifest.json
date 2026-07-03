@@ -1,7 +1,7 @@
 {
   "domain": "marstek",
   "name": "Marstek",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "codeowners": ["@MarstekEnergy"],
   "config_flow": true,
   "dependencies": ["network"],

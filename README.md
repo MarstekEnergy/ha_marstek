@@ -3,6 +3,10 @@
 
 The Marstek integration is an official integration component for Home Assistant provided by Marstek, which can be used to monitor and control Marstek devices.
 
+## Documentation
+
+- **[Marstek Open API – Glitches & Issues](docs/MARSTEK_OPEN_API_QUIRKS.md)** – Known firmware/API quirks (PV1 deciwatts, unreliable amp readings, `ongrid` sign convention, UDP glitches) and how the integration handles them. **Required reading before PV/Grid changes.**
+
 ## System Requirements
 
 > Home Assistant version requirements:
