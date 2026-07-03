@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any
 
-from pymarstek import MarstekUDPClient
+from pymarstek import MarstekUDPClient, get_es_mode
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
@@ -225,35 +225,77 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
         hass, entry, udp_client, device_info_dict["ip"]
     )
 
-    if options.startup_delay > 0:
-        _LOGGER.info(
-            "Deferring first Marstek poll for %ss so the device can keep exporting "
-            "undisturbed after Home Assistant reload",
-            options.startup_delay,
+    if options.startup_delay == 0:
+        # Quick reachability probe (short timeout, single attempt) so that
+        # async_setup_entry returns promptly and we can still raise
+        # ConfigEntryNotReady for unreachable devices without long blocking.
+        try:
+            await asyncio.wait_for(
+                udp_client.send_request(
+                    get_es_mode(0),
+                    stored_ip,
+                    DEFAULT_UDP_PORT,
+                    timeout=3.0,
+                    quiet_on_timeout=True,
+                ),
+                timeout=4.0,
+            )
+        except Exception as ex:
+            await udp_client.async_cleanup()
+            _LOGGER.warning(
+                "Unable to reach Marstek at %s during initial probe: %s",
+                stored_ip,
+                ex,
+            )
+            raise ConfigEntryNotReady(
+                f"Unable to connect to device at {stored_ip}."
+            ) from ex
+
+        entry.runtime_data = MarstekRuntimeData(
+            udp_client=udp_client,
+            coordinator=coordinator,
+            device_info=device_info_dict,
         )
-        await asyncio.sleep(options.startup_delay)
 
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except Exception as ex:
-        await udp_client.async_cleanup()
-        _LOGGER.warning(
-            "Unable to reach Marstek at %s after startup delay: %s",
-            stored_ip,
-            ex,
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+        # Schedule the full first data update (the one that performs the
+        # spaced ES.GetMode / sleep / ES.GetStatus / sleep / PV.GetStatus).
+        # We do not await it here so that async_setup_entry returns quickly.
+        hass.async_create_task(coordinator.async_request_refresh())
+    else:
+        # Defer first UDP contact to avoid disturbing the device's export/MPPT
+        # after HA (re)load. Load platforms immediately; data will arrive later.
+        entry.runtime_data = MarstekRuntimeData(
+            udp_client=udp_client,
+            coordinator=coordinator,
+            device_info=device_info_dict,
         )
-        raise ConfigEntryNotReady(
-            f"Unable to connect to device at {stored_ip}."
-        ) from ex
 
-    # Store client, coordinator, and device_info in runtime_data
-    entry.runtime_data = MarstekRuntimeData(
-        udp_client=udp_client,
-        coordinator=coordinator,
-        device_info=device_info_dict,
-    )
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        async def _async_delayed_first_refresh() -> None:
+            _LOGGER.info(
+                "Deferring first Marstek poll for %ss so the device can keep exporting "
+                "undisturbed after Home Assistant reload",
+                options.startup_delay,
+            )
+            try:
+                await asyncio.sleep(options.startup_delay)
+                await coordinator.async_config_entry_first_refresh()
+            except asyncio.CancelledError:
+                _LOGGER.debug("Delayed first refresh cancelled for %s", stored_ip)
+                raise
+            except Exception as ex:
+                _LOGGER.warning(
+                    "Unable to reach Marstek at %s after startup delay: %s",
+                    stored_ip,
+                    ex,
+                )
+                # Coordinator will continue retrying on its normal schedule.
+
+        task = hass.async_create_task(_async_delayed_first_refresh())
+        entry.async_on_unload(task.cancel)
 
     # Register services only once for the integration
     if not hass.data.get(DOMAIN + "_services_registered"):

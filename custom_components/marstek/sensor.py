@@ -290,6 +290,15 @@ class MarstekDeviceModeSensor(MarstekSensor):
         """Return the name of the sensor."""
         return "Device Mode"
 
+    @property
+    def native_value(self) -> StateType:
+        """Return last known device mode; keep value across short ES data gaps."""
+        if self.coordinator.data:
+            value = self.coordinator.data.get("device_mode")
+            if isinstance(value, str) and value:
+                return cast(StateType, value)
+        return None
+
 
 class MarstekBatteryStatusSensor(MarstekSensor):
     """Representation of a Marstek battery status sensor."""
@@ -591,7 +600,14 @@ class MarstekBatteryStoredEnergySensor(MarstekSensor):
 
 
 class MarstekCTStateSensor(MarstekSensor):
-    """Representation of CT state sensor."""
+    """Representation of CT state sensor.
+
+    CT state is a diagnostic status (connection/health of the CT sensor).
+    We show the last known value as long as the device is reachable, even
+    during short periods without fresh ES data (to avoid flapping to unknown
+    on transient poll misses). Only falls back to unknown if we never
+    received a value.
+    """
 
     _attr_icon = "mdi:counter"
     _attr_device_class = None
@@ -612,6 +628,16 @@ class MarstekCTStateSensor(MarstekSensor):
     def name(self) -> str:
         """Return the name of the sensor."""
         return "CT State"
+
+    @property
+    def native_value(self) -> StateType:
+        """Return last known CT state; do not blank to None on short staleness."""
+        if self.coordinator.data:
+            value = self.coordinator.data.get("ct_state")
+            if value is not None:
+                return cast(StateType, value)
+        # Only if we truly have no data at all
+        return None
 
 
 class MarstekMeterPowerSensor(MarstekSensor):

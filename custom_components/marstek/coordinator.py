@@ -359,7 +359,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         for key in _ES_MODE_EXTENDED_KEYS:
             value = result.get(key)
-            if isinstance(value, (int, float)):
+            if key == "ct_state":
+                # ct_state may be int (0/1/2 etc) or string status; accept any non-None
+                if value is not None:
+                    device_status[key] = value
+            elif isinstance(value, (int, float)):
                 device_status[key] = value
 
     @staticmethod
