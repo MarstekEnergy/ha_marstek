@@ -1,17 +1,26 @@
 """Constants for the Marstek integration."""
 
-from __future__ import annotations
-
 from typing import Final
-
-from homeassistant.const import Platform
 
 DOMAIN: Final = "marstek"
 
-PLATFORMS: Final[list[Platform]] = [
-    Platform.SENSOR,
-]
+CONF_BLE_MAC: Final = "ble_mac"
+CONF_DEVICE_TYPE: Final = "device_type"
+CONF_VERSION: Final = "version"
+CONF_WIFI_MAC: Final = "wifi_mac"
+CONF_WIFI_NAME: Final = "wifi_name"
 
-# UDP Configuration
-DEFAULT_UDP_PORT: Final = 30000  # Default UDP port for Marstek devices
-DISCOVERY_TIMEOUT: Final = 10.0  # Wait 10s for each broadcast
+SUPPORTED_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "VNSE3-0",
+        "VNSD-0",
+        "VNSA-0",
+        "VenusA",
+        "VenusD",
+        "VenusE 3.0",
+    }
+)
+
+PV_STATE_OPTIONS: Final = ("standby", "working")
+DEVICE_MODE_OPTIONS: Final = ("auto", "ai", "manual", "passive", "ups")
+BATTERY_STATUS_OPTIONS: Final = ("selling", "charging", "idle")

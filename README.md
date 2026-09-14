@@ -21,13 +21,13 @@ The Marstek integration is an official integration component for Home Assistant 
 If you have not cloned the repository before, follow these steps directly:
 
 ```bash
-# 1) Clone the repo (marstek-integration branch)
+# 1) Clone the Home Assistant Core repository
 git clone https://github.com/home-assistant/core.git
 
 cd core
 
-# 2) Create and activate venv (Python 3.13)
-python3.13 -m venv venv
+# 2) Create and activate venv (Python 3.14)
+python3.14 -m venv venv
 
 source venv/bin/activate    # Windows: venv\Scripts\activate
 
@@ -37,7 +37,7 @@ pip install -r requirements.txt -r requirements_test.txt
 pip install homeassistant
 
 # 4) Run Home Assistant (uses ./config as your config directory)
-mkir config
+mkdir config
 
 hass -c config
 ```
@@ -46,17 +46,17 @@ hass -c config
 
 ### Method 1: Manual Installation (Recommended)
 
-1. **Clone the repository and switch to the marstek-dev branch:**
+1. **Clone the repository and switch to the `main` branch:**
 
 ```bash
 git clone https://github.com/MarstekEnergy/ha_marstek.git
 
 cd ha_marstek
 
-git checkout marstek-dev
+git checkout main
 ```
 
-2. **Copy the marstek folder to your Home Assistant components directory:**
+2. **Copy the marstek folder to your Home Assistant `custom_components` directory:**
 
 ```bash
 # If using Home Assistant Core (Python virtual environment)
@@ -67,8 +67,8 @@ cp -r ./custom_components/marstek /path/to/homeassistant/config/custom_component
 
 ## Important Notes
 
-- **Branch**: Make sure you're on the `marstek-dev` branch to get the latest development version.
-- **Directory Structure**: The `marstek` folder should be placed directly in the `components` directory, not in a subdirectory.
+- **Branch**: The `main` branch contains the latest synchronized integration.
+- **Directory Structure**: Place the `marstek` folder directly in Home Assistant's `custom_components` directory.
 - **Permissions**: Ensure the files have proper read permissions for the Home Assistant process.
 
 ## After Installation
@@ -84,16 +84,16 @@ cp -r ./custom_components/marstek /path/to/homeassistant/config/custom_component
 After installation, your Home Assistant components directory should look like:
 
 ```
-homeassistant/components/
+custom_components/
 ├── marstek/
 │   ├── __init__.py
 │   ├── config_flow.py
 │   ├── const.py
 │   ├── coordinator.py
-│   ├── device_action.py
+│   ├── entity.py
+│   ├── helpers.py
 │   ├── manifest.json
 │   ├── quality_scale.yaml
-│   ├── scanner.py
 │   ├── sensor.py
 │   ├── strings.json
 │   └── translations/
@@ -109,7 +109,7 @@ To update to the latest version:
 # If you kept the cloned repository
 cd /path/to/ha_marstek
 
-git pull origin marstek-dev
+git pull origin main
 
 # Copy the updated files
 cp -r ./custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
