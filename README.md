@@ -1,138 +1,87 @@
 # Marstek Home Assistant Integration
 
+The Marstek integration is an official Home Assistant integration from Marstek. It communicates with supported Marstek energy storage devices locally over UDP and exposes their status as Home Assistant sensors.
 
-The Marstek integration is an official integration component for Home Assistant provided by Marstek, which can be used to monitor and control Marstek devices.
+## Requirements
 
-## System Requirements
+- Home Assistant Core 2025.10.0 or newer.
+- Home Assistant OS 15.0 or newer when running Home Assistant OS.
+- Home Assistant and the Marstek device must be on the same local network.
+- Open API must be enabled on the Marstek device.
+- UDP port `30000` must be available between Home Assistant and the device. Discovery uses a local-network UDP broadcast.
 
-> Home Assistant version requirements:
->
-> - Core version: ^2025.10.0
-> - HAOS version: ^15.0
->
-> Marstek devices and Home Assistant must be on the same local network
->
-> Marstek devices must have OPEN API enabled
->
-> **⚠️ Important**: This integration is currently not compatible with Venus E2.0 devices. Using this integration with Venus E2.0 may cause disconnection between the device and CT003.
+> **Important:** Venus E2.0 is not supported. Do not use this integration with Venus E2.0, as it may disconnect the device from CT003.
 
-## Quickstart (no existing repo)
+## Supported Devices
 
-If you have not cloned the repository before, follow these steps directly:
+The integration currently supports these device types. A device may report either its model name or one of the protocol identifiers below:
 
-```bash
-# 1) Clone the Home Assistant Core repository
-git clone https://github.com/home-assistant/core.git
+| Device | Reported device type |
+| --- | --- |
+| Venus A | `VNSA-0`, `VenusA`, `Venus A` |
+| Venus D | `VNSD-0`, `VenusD`, `Venus D` |
+| Venus E 3.0 | `VNSE3-0`, `VenusE 3.0`, `Venus E 3.0` |
 
-cd core
+Support depends on the device firmware exposing the Marstek Open API. Other device types are rejected during setup until they are explicitly supported.
 
-# 2) Create and activate venv (Python 3.14)
-python3.14 -m venv venv
+## Available Entities
 
-source venv/bin/activate    # Windows: venv\Scripts\activate
+After setup, the integration creates sensors for:
 
-# 3) Install dependencies
-pip install -r requirements.txt -r requirements_test.txt
+- Battery level, power, and status.
+- Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
+- Each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`).
 
-pip install homeassistant
-
-# 4) Run Home Assistant (uses ./config as your config directory)
-mkdir config
-
-hass -c config
-```
+The device is polled locally every 30 seconds. No cloud account or external service is required.
 
 ## Installation
 
-### Method 1: Manual Installation (Recommended)
+This repository is intended for manual installation as a Home Assistant custom integration.
 
-1. **Clone the repository and switch to the `main` branch:**
+1. Clone the repository and switch to the `main` branch:
 
-```bash
-git clone https://github.com/MarstekEnergy/ha_marstek.git
+   ```bash
+   git clone https://github.com/MarstekEnergy/ha_marstek.git
+   cd ha_marstek
+   git checkout main
+   ```
 
-cd ha_marstek
+2. Copy the integration into Home Assistant's `custom_components` directory. Replace `/path/to/homeassistant/config` with your Home Assistant configuration directory:
 
-git checkout main
-```
+   ```bash
+   mkdir -p /path/to/homeassistant/config/custom_components
+   cp -r custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
+   ```
 
-2. **Copy the marstek folder to your Home Assistant `custom_components` directory:**
+3. Restart Home Assistant.
 
-```bash
-# If using Home Assistant Core (Python virtual environment)
-cp -r ./custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
+4. Open **Settings** > **Devices & services**, select **Add integration**, search for **Marstek**, and choose one of the following setup methods:
 
-```
+   - **Search for devices on the local network** to use UDP discovery.
+   - **Enter device IP address** for manual setup.
 
+The Marstek device must be powered on, reachable from Home Assistant, and have Open API enabled before setup.
 
-## Important Notes
+## Updating
 
-- **Branch**: The `main` branch contains the latest synchronized integration.
-- **Directory Structure**: Place the `marstek` folder directly in Home Assistant's `custom_components` directory.
-- **Permissions**: Ensure the files have proper read permissions for the Home Assistant process.
-
-## After Installation
-
-1. Restart Home Assistant
-2. Go to **Settings** → **Devices & Services**
-3. Click **Add Integration**
-4. Search for "Marstek"
-5. Follow the configuration flow
-
-## Directory Structure
-
-After installation, your Home Assistant components directory should look like:
-
-```
-custom_components/
-├── marstek/
-│   ├── __init__.py
-│   ├── config_flow.py
-│   ├── const.py
-│   ├── coordinator.py
-│   ├── entity.py
-│   ├── helpers.py
-│   ├── manifest.json
-│   ├── quality_scale.yaml
-│   ├── sensor.py
-│   ├── strings.json
-│   └── translations/
-│       └── en.json
-└── ... (other components)
-```
-
-## Updating the Integration
-
-To update to the latest version:
+Pull the latest version and copy the integration over the installed version:
 
 ```bash
-# If you kept the cloned repository
 cd /path/to/ha_marstek
-
 git pull origin main
-
-# Copy the updated files
-cp -r ./custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
-
-
+cp -r custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
 ```
 
+Restart Home Assistant after updating.
 
+## Troubleshooting
 
-## Frequently Asked Questions
+If no device is discovered:
 
-1. **Which devices are supported?**
+- Confirm that Open API is enabled on the device.
+- Confirm that Home Assistant and the device are on the same network segment.
+- Allow UDP traffic on port `30000` in the network and host firewalls.
+- Try manual setup with the device's IP address.
+- Check the Home Assistant log for connection or unsupported-device errors.
 
-   Supports Venus A, Venus D, Venus E 3.0 with new firmware versions, as well as other Marstek devices that support OPEN API communication.
-   
-   **Note**: This integration is currently not compatible with Venus E2.0 devices. Using this integration with Venus E2.0 may cause disconnection between the device and CT003.
-
-2. **Why can't I find my device?**
-
-   - OPEN API is not enabled on the device
-   - Ensure Marstek devices and Home Assistant are on the same network segment, and port 30000 is open
-   - The integration searches for devices via UDP broadcast. Network fluctuations may affect communication between devices and HA. It is recommended to retry
-
-3. **What is OPEN API?**
-
-   OPEN API is a communication interface provided by Marstek device firmware for querying device status and controlling some commands in a local network environment.
+If the device is detected but setup fails, verify that its reported device type is listed above and that the device firmware supports the Open API used by this integration.
