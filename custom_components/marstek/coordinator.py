@@ -1,6 +1,5 @@
 """Data update coordinator for Marstek devices."""
 
-from dataclasses import dataclass
 from datetime import timedelta
 import logging
 from typing import override
@@ -21,24 +20,9 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
 
 
-@dataclass(slots=True, kw_only=True)
-class MarstekSharedData:
-    """Shared runtime data for all Marstek config entries."""
+type MarstekConfigEntry = ConfigEntry[MarstekDataUpdateCoordinator]
 
-    udp_client: MarstekUDPClient
-    entry_count: int = 0
-
-
-@dataclass(slots=True, kw_only=True)
-class MarstekRuntimeData:
-    """Runtime data for a Marstek config entry."""
-
-    coordinator: MarstekDataUpdateCoordinator
-
-
-type MarstekConfigEntry = ConfigEntry[MarstekRuntimeData]
-
-MARSTEK_SHARED_DATA: HassKey[MarstekSharedData] = HassKey(DOMAIN)
+MARSTEK_UDP_CLIENT: HassKey[MarstekUDPClient] = HassKey(DOMAIN)
 
 
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
@@ -102,12 +86,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         """Fetch device data from the Marstek client library."""
         _LOGGER.debug("Start polling device: %s", self.device_ip)
         current_data = self.data
-
-        if self.udp_client.is_polling_paused(self.device_ip):
-            _LOGGER.debug(
-                "Polling paused for device: %s, skipping update", self.device_ip
-            )
-            return current_data or MarstekDeviceStatus(device_ip=self.device_ip)
 
         try:
             current_data = await self.udp_client.get_device_status(
