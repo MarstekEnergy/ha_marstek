@@ -4,11 +4,12 @@ The Marstek integration is an official Home Assistant integration from Marstek. 
 
 ## Requirements
 
-- Home Assistant Core 2025.10.0 or newer.
-- Home Assistant OS 15.0 or newer when running Home Assistant OS.
+- Home Assistant Core 2026.9.0 or newer. The integration uses the `probatio` validation library and Python 3.14 syntax, both of which are only available in Home Assistant 2026.9 and later. Older versions fail to load the integration.
+- Keep Home Assistant OS, or the container image you run, up to date so it ships a supported Home Assistant Core version.
 - Home Assistant and the Marstek device must be on the same local network.
 - Open API must be enabled on the Marstek device.
 - UDP port `30000` must be available between Home Assistant and the device. Discovery uses a local-network UDP broadcast.
+- When running Home Assistant in Docker, the container needs host networking for discovery to work. Otherwise, add the device manually by IP address.
 
 > **Important:** Venus E2.0 is not supported. Do not use this integration with Venus E2.0, as it may disconnect the device from CT003.
 
@@ -21,6 +22,7 @@ The integration currently supports these device types. A device may report eithe
 | Venus A | `VNSA-0`, `VenusA`, `Venus A` |
 | Venus D | `VNSD-0`, `VenusD`, `Venus D` |
 | Venus E 3.0 | `VNSE3-0`, `VenusE 3.0`, `Venus E 3.0` |
+| Venus Mini | `VNSEM-0` |
 
 Support depends on the device firmware exposing the Marstek Open API. Other device types are rejected during setup until they are explicitly supported.
 
@@ -76,11 +78,18 @@ Restart Home Assistant after updating.
 
 ## Troubleshooting
 
+If **Marstek does not appear, or setup fails immediately with no connection attempt**, check the Home Assistant log:
+
+- An error mentioning `version key in the manifest file` means you are running an older copy of this integration. Replace the `custom_components/marstek` folder with the latest version from this repository and restart.
+- An error mentioning `probatio` or `SyntaxError` means Home Assistant is too old. Upgrade Home Assistant Core to 2026.9.0 or newer, restart, and try again.
+
 If no device is discovered:
 
 - Confirm that Open API is enabled on the device.
 - Confirm that Home Assistant and the device are on the same network segment.
 - Allow UDP traffic on port `30000` in the network and host firewalls.
+- When Home Assistant runs in Docker, use host networking, or skip discovery and add the device manually by IP address.
+- Make sure client isolation (guest networks, IoT VLANs) is not blocking broadcasts between Home Assistant and the device.
 - Try manual setup with the device's IP address.
 - Check the Home Assistant log for connection or unsupported-device errors.
 
