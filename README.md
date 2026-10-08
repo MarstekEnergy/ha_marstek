@@ -51,8 +51,8 @@ This repository is intended for manual installation as a Home Assistant custom i
 2. Copy the integration into Home Assistant's `custom_components` directory. Replace `/path/to/homeassistant/config` with your Home Assistant configuration directory:
 
    ```bash
-   mkdir -p /path/to/homeassistant/config/custom_components
-   cp -r custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
+   mkdir -p /path/to/homeassistant/config/custom_components/marstek
+   cp -r custom_components/marstek/. /path/to/homeassistant/config/custom_components/marstek/
    ```
 
 3. Restart Home Assistant.
@@ -71,10 +71,11 @@ Pull the latest version and copy the integration over the installed version:
 ```bash
 cd /path/to/ha_marstek
 git pull origin main
-cp -r custom_components/marstek /path/to/homeassistant/config/custom_components/marstek
+mkdir -p /path/to/homeassistant/config/custom_components/marstek
+cp -r custom_components/marstek/. /path/to/homeassistant/config/custom_components/marstek/
 ```
 
-Restart Home Assistant after updating.
+Restart Home Assistant after updating. The trailing `/.` copies the contents of the integration folder, which overwrites the installed files instead of nesting a second copy inside them.
 
 ## Troubleshooting
 
