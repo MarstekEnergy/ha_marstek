@@ -1,4 +1,1 @@
 pytest-homeassistant-custom-component==0.13.372
-# Until an aiomarstek release includes MarstekEnergy/aiomarstek#<PR>, test
-# against that change; replace with the aiomarstek pin from manifest.json.
-https://github.com/DominusEcho/aiomarstek/archive/82913aacd710b9eb11485b3a2d2dc3a4419e215c.zip#aiomarstek==0.1.7
