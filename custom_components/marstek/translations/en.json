@@ -71,6 +71,18 @@
                     "ups": "UPS"
                 }
             },
+            "grid_export_energy": {
+                "name": "Grid export energy"
+            },
+            "grid_import_energy": {
+                "name": "Grid import energy"
+            },
+            "grid_phase_power": {
+                "name": "Grid phase {phase} power"
+            },
+            "grid_power": {
+                "name": "Grid power"
+            },
             "pv_current": {
                 "name": "PV input {input} current"
             },
@@ -86,6 +98,12 @@
             },
             "pv_voltage": {
                 "name": "PV input {input} voltage"
+            },
+            "total_grid_input_energy": {
+                "name": "Lifetime charged energy"
+            },
+            "total_grid_output_energy": {
+                "name": "Lifetime discharged energy"
             },
             "total_pv_energy": {
                 "name": "Lifetime PV energy"

@@ -32,7 +32,15 @@ After setup, the integration creates sensors for:
 
 - Battery level, power, and status.
 - Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
-- Each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`).
+- Lifetime discharged and charged battery energy, for the battery in the Energy dashboard.
+- Grid power, in total and per phase, when a CT meter is connected to the device.
+- Grid import and export energy, integrated from the CT meter's grid power, for the grid in the Energy dashboard. They only count while Home Assistant is running.
+- Venus A and Venus D only: lifetime PV energy, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
+
+### Energy dashboard
+
+- **Grid connections**: use *Grid import energy* for energy consumed from the grid and *Grid export energy* for energy returned to the grid.
+- **Home battery storage**: use *Lifetime discharged energy* for energy discharged from the battery and *Lifetime charged energy* for energy charged into the battery. Some firmware reports the charged energy as 0.
 
 The device is polled locally every 30 seconds. No cloud account or external service is required.
 

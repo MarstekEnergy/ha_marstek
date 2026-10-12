@@ -7,6 +7,7 @@
   "documentation": "https://github.com/MarstekEnergy/ha_marstek",
   "integration_type": "device",
   "iot_class": "local_polling",
+  "loggers": ["aiomarstek"],
   "quality_scale": "bronze",
   "requirements": ["aiomarstek==0.1.7"],
   "version": "0.1.7"
