@@ -1,6 +1,6 @@
 """Data update coordinator for Marstek devices."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import override
 
@@ -17,7 +17,7 @@ from .const import DOMAIN, SUPPORTED_DEVICE_TYPES
 
 _LOGGER = logging.getLogger(__name__)
 
-SCAN_INTERVAL = timedelta(seconds=30)
+SCAN_INTERVAL = timedelta(seconds=60)
 
 
 type MarstekConfigEntry = ConfigEntry[MarstekDataUpdateCoordinator]
@@ -30,6 +30,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
 
     config_entry: MarstekConfigEntry
     device_info: MarstekDeviceInfo
+    # When the device last answered a status request; data from a poll the
+    # device did not answer is the previous data, so this shows staleness.
+    last_response: datetime | None = None
 
     def __init__(
         self,
@@ -99,4 +102,5 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 translation_placeholders={"host": self.device_ip},
             ) from err
 
+        self.last_response = self.udp_client.get_last_response_time(self.device_ip)
         return current_data

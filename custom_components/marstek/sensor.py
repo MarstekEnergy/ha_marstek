@@ -14,6 +14,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
@@ -194,6 +195,14 @@ GRID_ENERGY_SENSOR_DESCRIPTIONS: tuple[
 )
 
 
+LAST_RESPONSE_SENSOR_DESCRIPTION = SensorEntityDescription(
+    key="last_response",
+    translation_key="last_response",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MarstekConfigEntry,
@@ -213,6 +222,9 @@ async def async_setup_entry(
     sensors.extend(
         MarstekGridEnergySensor(coordinator, description)
         for description in GRID_ENERGY_SENSOR_DESCRIPTIONS
+    )
+    sensors.append(
+        MarstekLastResponseSensor(coordinator, LAST_RESPONSE_SENSOR_DESCRIPTION)
     )
 
     _LOGGER.debug("Device %s sensors set up, total %d", device_ip, len(sensors))
@@ -277,3 +289,13 @@ class MarstekGridEnergySensor(MarstekEntity, RestoreSensor):
     def native_value(self) -> float | None:
         """Return the accumulated grid energy."""
         return self._energy
+
+
+class MarstekLastResponseSensor(MarstekEntity, SensorEntity):
+    """When the device last answered a status request."""
+
+    @property
+    @override
+    def native_value(self) -> datetime | None:
+        """Return the time of the device's last response."""
+        return self.coordinator.last_response

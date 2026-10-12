@@ -83,6 +83,9 @@
       "grid_power": {
         "name": "Grid power"
       },
+      "last_response": {
+        "name": "Last response"
+      },
       "pv_current": {
         "name": "PV input {input} current"
       },
