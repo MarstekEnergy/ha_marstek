@@ -32,4 +32,15 @@ PV_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
 
 PV_STATE_OPTIONS: Final = ("standby", "working")
 DEVICE_MODE_OPTIONS: Final = ("auto", "ai", "manual", "passive", "ups")
+ERROR_NONE: Final = "none"
+ERROR_NO_RESPONSE: Final = "no_response"
+ERROR_NETWORK: Final = "network_error"
+ERROR_INVALID_DATA: Final = "invalid_data"
+ERROR_STATE_OPTIONS: Final = (
+    ERROR_NONE,
+    ERROR_NO_RESPONSE,
+    ERROR_NETWORK,
+    ERROR_INVALID_DATA,
+)
+
 BATTERY_STATUS_OPTIONS: Final = ("selling", "charging", "idle")
