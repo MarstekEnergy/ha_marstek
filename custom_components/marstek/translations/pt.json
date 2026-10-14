@@ -1,0 +1,154 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "O dispositivo já está configurado",
+            "missing_unique_id": "O dispositivo não forneceu um identificador único estável",
+            "unsupported_device": "Este tipo de dispositivo Marstek ainda não é suportado"
+        },
+        "error": {
+            "cannot_connect": "Não foi possível ligar ao dispositivo",
+            "device_not_found": "Nenhum dispositivo encontrado no endereço IP indicado",
+            "discovery_failed": "A procura de dispositivos falhou. Verifique a ligação à rede e tente novamente.",
+            "no_devices_found": "Nenhum dispositivo Marstek encontrado na rede. Verifique se o dispositivo está ligado e na mesma rede.",
+            "unsupported_device": "Este tipo de dispositivo Marstek ainda não é suportado"
+        },
+        "progress": {
+            "discover": "A procurar dispositivos Marstek na rede local",
+            "title": "Procura de dispositivos Marstek"
+        },
+        "step": {
+            "discover": {
+                "data": {
+                    "device": "Selecionar dispositivo"
+                },
+                "data_description": {
+                    "device": "O dispositivo Marstek encontrado na sua rede local."
+                },
+                "title": "Armazenamento de energia Marstek"
+            },
+            "manual": {
+                "data": {
+                    "host": "Anfitrião"
+                },
+                "data_description": {
+                    "host": "O endereço IP do seu dispositivo Marstek na rede local."
+                },
+                "description": "Introduza o endereço IP do seu dispositivo Marstek. O dispositivo tem de estar na mesma rede local e ter a Open API ativada.",
+                "title": "Adicionar dispositivo Marstek"
+            },
+            "user": {
+                "menu_options": {
+                    "discover": "Procurar dispositivos na rede local",
+                    "manual": "Introduzir o endereço IP do dispositivo"
+                },
+                "title": "Armazenamento de energia Marstek"
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "battery_cycles": {
+                "name": "Ciclos da bateria"
+            },
+            "battery_power": {
+                "name": "Potência da bateria"
+            },
+            "battery_soc": {
+                "name": "Nível da bateria"
+            },
+            "battery_status": {
+                "name": "Estado da bateria",
+                "state": {
+                    "charging": "A carregar",
+                    "idle": "Inativa",
+                    "selling": "A descarregar"
+                }
+            },
+            "device_mode": {
+                "name": "Modo do dispositivo",
+                "state": {
+                    "ai": "IA",
+                    "auto": "Automático",
+                    "manual": "Manual",
+                    "passive": "Passivo",
+                    "ups": "UPS"
+                }
+            },
+            "error_state": {
+                "name": "Estado de erro",
+                "state": {
+                    "none": "Sem erros",
+                    "no_response": "Sem resposta",
+                    "network_error": "Erro de rede",
+                    "invalid_data": "Dados inválidos"
+                }
+            },
+            "grid_export_energy": {
+                "name": "Energia exportada para a rede"
+            },
+            "grid_import_energy": {
+                "name": "Energia importada da rede"
+            },
+            "grid_phase_power": {
+                "name": "Potência da rede fase {phase}"
+            },
+            "grid_power": {
+                "name": "Potência da rede"
+            },
+            "last_response": {
+                "name": "Última resposta"
+            },
+            "pv_current": {
+                "name": "Corrente da entrada FV {input}"
+            },
+            "pv_power": {
+                "name": "Potência da entrada FV {input}"
+            },
+            "pv_state": {
+                "name": "Estado da entrada FV {input}",
+                "state": {
+                    "standby": "Em espera",
+                    "working": "A funcionar"
+                }
+            },
+            "pv_voltage": {
+                "name": "Tensão da entrada FV {input}"
+            },
+            "stored_energy": {
+                "name": "Energia armazenada"
+            },
+            "total_grid_input_energy": {
+                "name": "Energia carregada total"
+            },
+            "total_grid_output_energy": {
+                "name": "Energia descarregada total"
+            },
+            "total_pv_energy": {
+                "name": "Energia FV total"
+            }
+        }
+    },
+    "exceptions": {
+        "device_connection_failed": {
+            "message": "Não foi possível ligar ao dispositivo Marstek em {host}."
+        },
+        "device_update_failed": {
+            "message": "Não foi possível atualizar o dispositivo Marstek em {host}."
+        },
+        "invalid_device_data": {
+            "message": "O dispositivo Marstek em {host} devolveu dados inválidos."
+        },
+        "missing_stable_id": {
+            "message": "O dispositivo Marstek em {host} não forneceu um ID estável."
+        },
+        "unsupported_device": {
+            "message": "O tipo de dispositivo Marstek {device_type} ainda não é suportado."
+        }
+    },
+    "issues": {
+        "open_api_unreachable": {
+            "title": "O dispositivo Marstek em {host} não está a responder",
+            "description": "O dispositivo Marstek em {host} não responde à API local há 10 minutos. Os seus valores são mostrados como indisponíveis.\n\nVerifique se o dispositivo está ligado e com ligação à rede. Se estiver, a API local provavelmente deixou de responder: na aplicação Marstek, desative e volte a ativar a Open API. Este problema desaparece sozinho assim que o dispositivo voltar a responder."
+        }
+    }
+}

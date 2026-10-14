@@ -32,9 +32,34 @@ After setup, the integration creates sensors for:
 
 - Battery level, power, and status.
 - Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
-- Each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`).
+- Lifetime discharged and charged battery energy, for the battery in the Energy dashboard.
+- Grid power, in total and per phase, when a CT meter is connected to the device.
+- Grid import and export energy, integrated from the CT meter's grid power, for the grid in the Energy dashboard. They only count while Home Assistant is running.
+- Stored energy, from the battery capacity and level.
+- Battery cycles (diagnostic): equivalent full cycles, the lifetime discharged energy divided by the battery capacity.
+- Last response and Error state (diagnostic): when the device last answered, and the outcome of the latest poll (`No error`, `No response`, `Network error`, or `Invalid data`). Both stay available while the device is not answering.
+- Venus A and Venus D only: lifetime PV energy, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
 
-The device is polled locally every 30 seconds. No cloud account or external service is required.
+### Energy dashboard
+
+- **Grid connections**: use *Grid import energy* for energy consumed from the grid and *Grid export energy* for energy returned to the grid.
+- **Home battery storage**: use *Lifetime discharged energy* for energy discharged from the battery and *Lifetime charged energy* for energy charged into the battery. Some firmware reports the charged energy as 0.
+
+The device is polled locally every 60 seconds. No cloud account or external service is required.
+
+### When the device stops answering
+
+Sensors keep their last values through one missed poll and become unavailable after two missed polls in a row. Grid import and export energy do not count the time the device was not answering, as the grid power during it is unknown.
+
+After 10 missed polls (10 minutes), a repair issue appears under **Settings** > **Repairs**. The local API of some devices stops answering until it is switched off and on again in the Marstek app. The issue clears itself when the device answers again, and the firmware version is re-read at that point, as a firmware update also interrupts the API.
+
+### Implausible readings
+
+Readings the device sometimes reports by mistake keep the previous value instead: lifetime energy counters that decrease, a battery capacity of 0, and a battery level of 0 % straight after a reading of 10 % or more. This keeps one bad reading from showing up as a spike in the Energy dashboard.
+
+### Languages
+
+The integration is translated into English and Portuguese, and follows the language set in each user's Home Assistant profile.
 
 ## Installation
 
@@ -95,3 +120,5 @@ If no device is discovered:
 - Check the Home Assistant log for connection or unsupported-device errors.
 
 If the device is detected but setup fails, verify that its reported device type is listed above and that the device firmware supports the Open API used by this integration.
+
+When reporting a problem, attach the diagnostics: open the device page under **Settings** > **Devices & services** > **Marstek**, select **⋮** > **Download diagnostics**. The file contains the device's latest replies and polling state, with MAC addresses and the Wi-Fi name removed.

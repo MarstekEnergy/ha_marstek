@@ -1,11 +1,35 @@
 {
   "entity": {
     "sensor": {
+      "battery_cycles": {
+        "default": "mdi:battery-sync"
+      },
       "battery_status": {
         "default": "mdi:battery"
       },
       "device_mode": {
         "default": "mdi:cog"
+      },
+      "error_state": {
+        "default": "mdi:alert-circle-outline",
+        "state": {
+          "none": "mdi:check-circle-outline"
+        }
+      },
+      "grid_export_energy": {
+        "default": "mdi:transmission-tower-import"
+      },
+      "grid_import_energy": {
+        "default": "mdi:transmission-tower-export"
+      },
+      "grid_phase_power": {
+        "default": "mdi:transmission-tower"
+      },
+      "grid_power": {
+        "default": "mdi:transmission-tower"
+      },
+      "last_response": {
+        "default": "mdi:clock-check-outline"
       },
       "pv_current": {
         "default": "mdi:current-ac"
