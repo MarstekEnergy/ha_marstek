@@ -29,3 +29,21 @@ jobs:
       # validation, including the manifest rules for custom integrations.
       - name: Run hassfest
         uses: home-assistant/actions/hassfest@master
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install test requirements
+        run: pip install -r requirements_test.txt
+
+      - name: Run tests
+        run: pytest

@@ -32,9 +32,29 @@ After setup, the integration creates sensors for:
 
 - Battery level, power, and status.
 - Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
-- Each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`).
+- Lifetime discharged and charged battery energy, for the battery in the Energy dashboard.
+- Last response and Error state (diagnostic): when the device last answered, and the outcome of the latest poll (`No error`, `No response`, `Network error`, or `Invalid data`). Both stay available while the device is not answering.
+- Venus A and Venus D only: lifetime PV energy, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
+
+### Energy dashboard
+
+- **Home battery storage**: use *Lifetime discharged energy* for energy discharged from the battery and *Lifetime charged energy* for energy charged into the battery. Some firmware reports the charged energy as 0.
 
 The device is polled locally every 30 seconds. No cloud account or external service is required.
+
+### When the device stops answering
+
+Sensors keep their last values through one missed poll and become unavailable after two missed polls in a row.
+
+After 10 missed polls (about 5 minutes), a repair issue appears under **Settings** > **Repairs**. The local API of some devices stops answering until it is switched off and on again in the Marstek app. The issue clears itself when the device answers again, and the firmware version is re-read at that point, as a firmware update also interrupts the API.
+
+### Implausible readings
+
+Readings the device sometimes reports by mistake keep the previous value instead: lifetime energy counters that decrease, and a battery level of 0 % straight after a reading of 10 % or more (a level of 0 % is accepted as real once it repeats over several polls). This keeps one bad reading from showing up as a spike in the Energy dashboard.
+
+### Languages
+
+The integration is translated into English and Portuguese, and follows the language set in each user's Home Assistant profile.
 
 ## Installation
 
@@ -77,6 +97,8 @@ cp -r custom_components/marstek/. /path/to/homeassistant/config/custom_component
 
 Restart Home Assistant after updating. The trailing `/.` copies the contents of the integration folder, which overwrites the installed files instead of nesting a second copy inside them.
 
+> **Breaking change in 0.1.9:** entity `unique_id`s now use the device's Bluetooth MAC address instead of its Wi-Fi MAC address, so they survive the Wi-Fi hardware being replaced. After updating from an earlier release, the entities are created anew. Re-select them in the Energy dashboard if you use them there, and remove the old device entry under **Settings** > **Devices & services** > **Marstek** if it is left behind.
+
 ## Troubleshooting
 
 If **Marstek does not appear, or setup fails immediately with no connection attempt**, check the Home Assistant log:
@@ -95,3 +117,5 @@ If no device is discovered:
 - Check the Home Assistant log for connection or unsupported-device errors.
 
 If the device is detected but setup fails, verify that its reported device type is listed above and that the device firmware supports the Open API used by this integration.
+
+When reporting a problem, attach the diagnostics: open the device page under **Settings** > **Devices & services** > **Marstek**, select **⋮** > **Download diagnostics**. The file contains the device's latest replies and polling state, with MAC addresses and the Wi-Fi name removed.
