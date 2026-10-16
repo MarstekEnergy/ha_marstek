@@ -59,6 +59,7 @@ class FakeClient:
         """Initialize the fake device state."""
         self.online = True
         self.version = 301
+        self.device: str = DEVICE_RESPONSE["device"]
         self.es_status: dict[str, Any] = dict(ES_STATUS)
         self.es_mode: dict[str, Any] = dict(ES_MODE)
         self.last_response: datetime | None = None
@@ -69,7 +70,9 @@ class FakeClient:
         """Return the device information."""
         if not self.online:
             raise TimeoutError
-        return MarstekDeviceInfo.from_response({**DEVICE_RESPONSE, "ver": self.version})
+        return MarstekDeviceInfo.from_response(
+            {**DEVICE_RESPONSE, "device": self.device, "ver": self.version}
+        )
 
     async def get_device_status(
         self,

@@ -71,6 +71,18 @@
                     "ups": "UPS"
                 }
             },
+            "error_state": {
+                "name": "Error state",
+                "state": {
+                    "none": "No error",
+                    "no_response": "No response",
+                    "network_error": "Network error",
+                    "invalid_data": "Invalid data"
+                }
+            },
+            "last_response": {
+                "name": "Last response"
+            },
             "pv_current": {
                 "name": "PV input {input} current"
             },
@@ -86,6 +98,12 @@
             },
             "pv_voltage": {
                 "name": "PV input {input} voltage"
+            },
+            "total_grid_input_energy": {
+                "name": "Lifetime charged energy"
+            },
+            "total_grid_output_energy": {
+                "name": "Lifetime discharged energy"
             },
             "total_pv_energy": {
                 "name": "Lifetime PV energy"
@@ -108,5 +126,11 @@
         "unsupported_device": {
             "message": "The Marstek device type {device_type} is not currently supported."
         }
+    },
+    "issues": {
+        "open_api_unreachable": {
+            "title": "Marstek device at {host} is not responding",
+            "description": "The Marstek device at {host} has not answered its local API for 10 minutes. Its values are shown as unavailable.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
+        }
     }
-}
+}

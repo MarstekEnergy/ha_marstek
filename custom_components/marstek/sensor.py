@@ -1,6 +1,7 @@
 """Sensor platform for Marstek devices."""
 
 from dataclasses import dataclass
+from datetime import datetime
 import logging
 from typing import override
 
@@ -18,10 +19,17 @@ from homeassistant.const import (
     UnitOfPower,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import BATTERY_STATUS_OPTIONS, DEVICE_MODE_OPTIONS, PV_STATE_OPTIONS
+from .const import (
+    BATTERY_STATUS_OPTIONS,
+    DEVICE_MODE_OPTIONS,
+    ERROR_STATE_OPTIONS,
+    PV_DEVICE_TYPES,
+    PV_STATE_OPTIONS,
+)
 from .coordinator import MarstekConfigEntry
 from .entity import MarstekEntity
 
@@ -31,6 +39,8 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True, kw_only=True)
 class MarstekSensorEntityDescription(SensorEntityDescription):
     """Describe a Marstek sensor entity."""
+
+    requires_pv: bool = False
 
 
 def _pv_input_sensor_descriptions() -> tuple[MarstekSensorEntityDescription, ...]:
@@ -71,6 +81,7 @@ def _pv_input_sensor_descriptions() -> tuple[MarstekSensorEntityDescription, ...
                         SensorStateClass.MEASUREMENT if metric != "state" else None
                     ),
                     options=list(PV_STATE_OPTIONS) if metric == "state" else None,
+                    requires_pv=True,
                 )
             )
     return tuple(descriptions)
@@ -97,6 +108,21 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        requires_pv=True,
+    ),
+    MarstekSensorEntityDescription(
+        key="total_grid_output_energy",
+        translation_key="total_grid_output_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="total_grid_input_energy",
+        translation_key="total_grid_input_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
     ),
     MarstekSensorEntityDescription(
         key="device_mode",
@@ -114,6 +140,22 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
 )
 
 
+LAST_RESPONSE_SENSOR_DESCRIPTION = SensorEntityDescription(
+    key="last_response",
+    translation_key="last_response",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+ERROR_STATE_SENSOR_DESCRIPTION = SensorEntityDescription(
+    key="error_state",
+    translation_key="error_state",
+    device_class=SensorDeviceClass.ENUM,
+    options=list(ERROR_STATE_OPTIONS),
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MarstekConfigEntry,
@@ -124,9 +166,16 @@ async def async_setup_entry(
     device_ip = coordinator.device_ip
     _LOGGER.debug("Setting up Marstek sensors: %s", device_ip)
 
-    sensors = [
-        MarstekSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
+    has_pv = coordinator.device_info.device_type in PV_DEVICE_TYPES
+    sensors: list[SensorEntity] = [
+        MarstekSensor(coordinator, description)
+        for description in SENSOR_DESCRIPTIONS
+        if has_pv or not description.requires_pv
     ]
+    sensors.append(
+        MarstekLastResponseSensor(coordinator, LAST_RESPONSE_SENSOR_DESCRIPTION)
+    )
+    sensors.append(MarstekErrorStateSensor(coordinator, ERROR_STATE_SENSOR_DESCRIPTION))
 
     _LOGGER.debug("Device %s sensors set up, total %d", device_ip, len(sensors))
     async_add_entities(sensors)
@@ -142,3 +191,35 @@ class MarstekSensor(MarstekEntity, SensorEntity):
     def native_value(self) -> StateType | None:
         """Return the state of the sensor."""
         return self.coordinator.data.get_value(self.entity_description.key)
+
+
+class MarstekLastResponseSensor(MarstekEntity, SensorEntity):
+    """When the device last answered a status request."""
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Stay available while the device is not answering, to show since when."""
+        return True
+
+    @property
+    @override
+    def native_value(self) -> datetime | None:
+        """Return the time of the device's last response."""
+        return self.coordinator.last_response
+
+
+class MarstekErrorStateSensor(MarstekEntity, SensorEntity):
+    """Outcome of the latest poll of the device."""
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Stay available while the device is not answering, to show why."""
+        return True
+
+    @property
+    @override
+    def native_value(self) -> str:
+        """Return the error state of the latest poll."""
+        return self.coordinator.error_state

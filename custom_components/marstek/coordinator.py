@@ -21,6 +21,7 @@ from .const import (
     ERROR_NETWORK,
     ERROR_NO_RESPONSE,
     ERROR_NONE,
+    PV_DEVICE_TYPES,
     SUPPORTED_DEVICE_TYPES,
 )
 
@@ -132,6 +133,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             status = await self.udp_client.get_device_status(
                 self.device_ip,
                 previous_data=previous,
+                include_pv=self.device_info.device_type in PV_DEVICE_TYPES,
             )
         except (TimeoutError, OSError, TypeError) as err:
             return self._missed_poll(previous, err)

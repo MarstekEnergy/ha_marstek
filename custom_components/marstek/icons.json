@@ -7,6 +7,15 @@
       "device_mode": {
         "default": "mdi:cog"
       },
+      "error_state": {
+        "default": "mdi:alert-circle-outline",
+        "state": {
+          "none": "mdi:check-circle-outline"
+        }
+      },
+      "last_response": {
+        "default": "mdi:clock-check-outline"
+      },
       "pv_current": {
         "default": "mdi:current-ac"
       },
