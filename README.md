@@ -32,7 +32,7 @@ After setup, the integration creates sensors for:
 
 - Battery level, power, and status.
 - Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
-- Each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`).
+- For PV-capable devices (Venus A and Venus D), each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`). Other supported devices do not expose PV sensors.
 
 The device is polled locally every 30 seconds. No cloud account or external service is required.
 
