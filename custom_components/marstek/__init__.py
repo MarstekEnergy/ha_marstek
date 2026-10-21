@@ -13,7 +13,7 @@ from .coordinator import (
     MarstekConfigEntry,
     MarstekDataUpdateCoordinator,
 )
-from .helpers import async_create_udp_client
+from .helpers import async_create_udp_client, migrate_legacy_identifier
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +48,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     )
     entry.runtime_data = coordinator
     await coordinator.async_config_entry_first_refresh()
+    # Entries from before the identifier switch are re-attached here, before
+    # the platforms set up, so their entities keep their registry rows.
+    migrate_legacy_identifier(hass, entry, coordinator.device_info.stable_id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True

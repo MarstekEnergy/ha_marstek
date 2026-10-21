@@ -4,12 +4,24 @@ from dataclasses import asdict
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_BLE_MAC, CONF_WIFI_MAC, CONF_WIFI_NAME
 from .coordinator import MarstekConfigEntry
 
-TO_REDACT = {CONF_BLE_MAC, CONF_WIFI_MAC, CONF_WIFI_NAME, "mac", "unique_id"}
+# Local IP addresses are identifying data too, so the config entry host, the
+# device info ip, and the status device_ip are redacted alongside the MACs.
+TO_REDACT = {
+    CONF_BLE_MAC,
+    CONF_HOST,
+    CONF_WIFI_MAC,
+    CONF_WIFI_NAME,
+    "device_ip",
+    "ip",
+    "mac",
+    "unique_id",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -34,7 +46,11 @@ async def async_get_config_entry_diagnostics(
             "failed_polls": coordinator.failed_polls,
             "last_response": last_response.isoformat() if last_response else None,
         },
-        "status": asdict(coordinator.data) if coordinator.data else None,
+        "status": (
+            async_redact_data(asdict(coordinator.data), TO_REDACT)
+            if coordinator.data
+            else None
+        ),
         "raw_results": async_redact_data(
             udp_client.get_last_results(coordinator.device_ip), TO_REDACT
         ),

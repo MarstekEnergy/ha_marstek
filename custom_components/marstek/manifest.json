@@ -9,6 +9,6 @@
   "iot_class": "local_polling",
   "loggers": ["aiomarstek"],
   "quality_scale": "bronze",
-  "requirements": ["aiomarstek==0.1.10"],
-  "version": "0.1.9"
+  "requirements": ["aiomarstek==0.1.13"],
+  "version": "0.1.11"
 }

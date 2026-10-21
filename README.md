@@ -44,17 +44,17 @@ The device is polled locally every 30 seconds. No cloud account or external serv
 
 ### When the device stops answering
 
-Sensors keep their last values through one missed poll and become unavailable after two missed polls in a row.
+Sensors become unavailable on the first missed poll, while the last response and error state diagnostic sensors stay available to show since when and why the device stopped answering. When the device answers only some of its status requests, the update still succeeds but the error state shows a partial response, since the fields the silent request feeds keep their previous values.
 
 After 10 missed polls (about 5 minutes), a repair issue appears under **Settings** > **Repairs**. The local API of some devices stops answering until it is switched off and on again in the Marstek app. The issue clears itself when the device answers again, and the firmware version is re-read at that point, as a firmware update also interrupts the API.
 
 ### Implausible readings
 
-Readings the device sometimes reports by mistake keep the previous value instead: lifetime energy counters that decrease, and a battery level of 0 % straight after a reading of 10 % or more (a level of 0 % is accepted as real once it repeats over several polls). This keeps one bad reading from showing up as a spike in the Energy dashboard.
+Readings the device sometimes reports by mistake keep the previous value instead: a battery level of 0 % straight after a reading of 10 % or more, and a lifetime energy counter below its previous reading. The Open API documents these counters as cumulative totals that only a factory reset clears, so on most firmware a drop is a glitch. Each counter is held on its own streak and accepted as a real reset only once it keeps dropping over several polls; a missing value is held at the last reading until the device reports one again. So one bad reply shows up neither as a spike nor as a phantom meter reset, while a real reset of one counter does not let another's glitch through.
 
 ### Languages
 
-The integration is translated into English and Portuguese, and follows the language set in each user's Home Assistant profile.
+The integration is translated into English, and follows the language set in each user's Home Assistant profile.
 
 ## Installation
 
@@ -97,7 +97,7 @@ cp -r custom_components/marstek/. /path/to/homeassistant/config/custom_component
 
 Restart Home Assistant after updating. The trailing `/.` copies the contents of the integration folder, which overwrites the installed files instead of nesting a second copy inside them.
 
-> **Breaking change in 0.1.9:** entity `unique_id`s now use the device's Bluetooth MAC address instead of its Wi-Fi MAC address, so they survive the Wi-Fi hardware being replaced. After updating from an earlier release, the entities are created anew. Re-select them in the Energy dashboard if you use them there, and remove the old device entry under **Settings** > **Devices & services** > **Marstek** if it is left behind.
+> **Breaking change in 0.1.9:** entity `unique_id`s now use the device's Bluetooth MAC address instead of its Wi-Fi MAC address, so they survive the Wi-Fi hardware being replaced. Entries set up before 0.1.9 are migrated to the new identifier the first time they are set up after updating, and their entities keep their entity ids, so statistics, automations, and Energy dashboard selections carry over. An entry that cannot be matched — for example one created without a recorded Bluetooth MAC — is left in place for you to remove manually.
 
 ## Troubleshooting
 

@@ -1,1 +1,2 @@
+aiomarstek==0.1.13
 pytest-homeassistant-custom-component==0.13.372

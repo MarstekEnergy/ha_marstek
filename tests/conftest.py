@@ -1,11 +1,10 @@
 """Fixtures for Marstek integration tests."""
 
 from collections.abc import Generator
-from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
 
-from aiomarstek import MarstekDeviceInfo, MarstekDeviceStatus
+from aiomarstek import MarstekDeviceInfo, MarstekDeviceStatus, MarstekNoResponse
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -50,6 +49,25 @@ ES_MODE = {
     "input_energy": 0,
     "output_energy": 695,
 }
+PV_STATUS = {
+    "id": 0,
+    "pv1_power": 100,
+    "pv1_voltage": 50,
+    "pv1_current": 2,
+    "pv1_state": 1,
+    "pv2_power": 0,
+    "pv2_voltage": 0,
+    "pv2_current": 0,
+    "pv2_state": 0,
+    "pv3_power": 0,
+    "pv3_voltage": 0,
+    "pv3_current": 0,
+    "pv3_state": 0,
+    "pv4_power": 0,
+    "pv4_voltage": 0,
+    "pv4_current": 0,
+    "pv4_state": 0,
+}
 
 
 class FakeClient:
@@ -59,20 +77,36 @@ class FakeClient:
         """Initialize the fake device state."""
         self.online = True
         self.version = 301
-        self.device: str = DEVICE_RESPONSE["device"]
+        self.device: str = str(DEVICE_RESPONSE["device"])
         self.es_status: dict[str, Any] = dict(ES_STATUS)
         self.es_mode: dict[str, Any] = dict(ES_MODE)
-        self.last_response: datetime | None = None
+        # The discovery response; tests override fields to fake other devices.
+        self.response: dict[str, Any] = dict(DEVICE_RESPONSE)
+        # Whether the device answers ES.GetStatus; ES.GetMode always answers.
+        self.es_status_online = True
         self.results: dict[str, dict[str, Any]] = {}
         self.include_pv_requests: list[bool] = []
+        self.pv_status: dict[str, Any] = dict(PV_STATUS)
+        self.pv_online = True
+        self.pv_supported: bool | None = None
 
     async def get_device_info(self, device_ip: str) -> MarstekDeviceInfo:
         """Return the device information."""
         if not self.online:
             raise TimeoutError
         return MarstekDeviceInfo.from_response(
-            {**DEVICE_RESPONSE, "device": self.device, "ver": self.version}
+            {**self.response, "device": self.device, "ver": self.version}
         )
+
+    async def discover_devices(self) -> list[MarstekDeviceInfo]:
+        """Return the fake device when it is online, like the library."""
+        if not self.online:
+            return []
+        return [
+            MarstekDeviceInfo.from_response(
+                {**self.response, "device": self.device, "ver": self.version}
+            )
+        ]
 
     async def get_device_status(
         self,
@@ -81,24 +115,33 @@ class FakeClient:
         previous_data: MarstekDeviceStatus | None = None,
         include_pv: bool = True,
     ) -> MarstekDeviceStatus:
-        """Return status, or the previous data when offline, like the library."""
+        """Return status, or raise MarstekNoResponse when offline, like the library."""
         self.include_pv_requests.append(include_pv)
-        status = previous_data or MarstekDeviceStatus(device_ip=device_ip)
         if not self.online:
-            return status
-        self.last_response = datetime.now(UTC)
-        self.results = {"ES.GetStatus": self.es_status, "ES.GetMode": self.es_mode}
-        return status.with_es_status_response(self.es_status).with_es_mode_response(
-            self.es_mode
-        )
-
-    def get_last_response_time(self, device_ip: str) -> datetime | None:
-        """Return when the fake device last answered."""
-        return self.last_response
+            raise MarstekNoResponse(device_ip)
+        # Each poll records only the methods that answered, like the library.
+        self.results = {}
+        status = previous_data or MarstekDeviceStatus(device_ip=device_ip)
+        if self.es_status_online:
+            self.results["ES.GetStatus"] = self.es_status
+            status = status.with_es_status_response(self.es_status)
+        # ES.GetMode answers even when ES.GetStatus does not, like a device
+        # whose status handler has wedged while the rest still works.
+        self.results["ES.GetMode"] = self.es_mode
+        status = status.with_es_mode_response(self.es_mode)
+        if include_pv and self.pv_online:
+            self.results["PV.GetStatus"] = self.pv_status
+            self.pv_supported = True
+            status = status.with_pv_status_response(self.pv_status)
+        return status
 
     def get_last_results(self, device_ip: str) -> dict[str, dict[str, Any]]:
         """Return the latest raw results."""
         return dict(self.results)
+
+    def is_pv_status_supported(self, device_ip: str) -> bool | None:
+        """Return whether the device answers PV.GetStatus, or None if unknown."""
+        return self.pv_supported
 
     async def async_cleanup(self) -> None:
         """Close the fake client."""

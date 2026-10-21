@@ -11,7 +11,7 @@ from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
-from .conftest import ES_MODE, FakeClient, setup_entry
+from .conftest import ES_MODE, HOST, FakeClient, setup_entry
 
 
 async def test_diagnostics(
@@ -31,5 +31,5 @@ async def test_diagnostics(
     assert result["poll"]["interval_seconds"] == 30
     assert result["raw_results"]["ES.GetMode"] == ES_MODE
     dumped = json.dumps(result)
-    for secret in ("ccc837b3e8d2", "ccc837b39e61", "home-wifi"):
+    for secret in ("ccc837b3e8d2", "ccc837b39e61", "home-wifi", HOST):
         assert secret not in dumped

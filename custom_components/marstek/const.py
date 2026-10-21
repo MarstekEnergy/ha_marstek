@@ -36,11 +36,13 @@ ERROR_NONE: Final = "none"
 ERROR_NO_RESPONSE: Final = "no_response"
 ERROR_NETWORK: Final = "network_error"
 ERROR_INVALID_DATA: Final = "invalid_data"
+ERROR_PARTIAL_RESPONSE: Final = "partial_response"
 ERROR_STATE_OPTIONS: Final = (
     ERROR_NONE,
     ERROR_NO_RESPONSE,
     ERROR_NETWORK,
     ERROR_INVALID_DATA,
+    ERROR_PARTIAL_RESPONSE,
 )
 
 BATTERY_STATUS_OPTIONS: Final = ("selling", "charging", "idle")

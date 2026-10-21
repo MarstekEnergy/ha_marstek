@@ -27,7 +27,7 @@ from .const import (
     SUPPORTED_DEVICE_TYPES,
 )
 from .coordinator import MARSTEK_UDP_CLIENT
-from .helpers import async_create_udp_client
+from .helpers import async_create_udp_client, migrate_legacy_identifier
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -240,6 +240,16 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             device.mac,
             unique_id,
         )
+        # Entries set up before the identifier switched from the Wi-Fi MAC to
+        # the BLE MAC keep their old unique_id; the shared helper re-attaches
+        # the entry that was created for this device — matched by the BLE MAC
+        # it recorded, which also covers replaced Wi-Fi hardware — and keeps
+        # its entities.
+        for entry in self._async_current_entries():
+            if entry.unique_id != unique_id and migrate_legacy_identifier(
+                self.hass, entry, unique_id
+            ):
+                break
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured(updates={CONF_HOST: device.ip})
 

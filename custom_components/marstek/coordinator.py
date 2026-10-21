@@ -1,11 +1,21 @@
 """Data update coordinator for Marstek devices."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import logging
-from typing import override
+from typing import NoReturn, override
 
-from aiomarstek import MarstekDeviceInfo, MarstekDeviceStatus, MarstekUDPClient
+from aiomarstek import (
+    CMD_ES_MODE,
+    CMD_ES_STATUS,
+    CMD_PV_GET_STATUS,
+    MONOTONIC_KEYS,
+    MarstekDeviceInfo,
+    MarstekDeviceStatus,
+    MarstekNoResponse,
+    MarstekUDPClient,
+    hold_glitches,
+)
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
@@ -21,6 +31,7 @@ from .const import (
     ERROR_NETWORK,
     ERROR_NO_RESPONSE,
     ERROR_NONE,
+    ERROR_PARTIAL_RESPONSE,
     PV_DEVICE_TYPES,
     SUPPORTED_DEVICE_TYPES,
 )
@@ -28,25 +39,9 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(seconds=30)
-# Missed polls in a row before entities become unavailable; the ones before
-# keep showing the last values, so a single dropped packet goes unnoticed.
-UNAVAILABLE_POLLS = 2
 # Missed polls in a row before a repair issue is raised. The device's local
 # API can hang until it is switched off and on again in the Marstek app.
 UNREACHABLE_POLLS = 10
-
-# Lifetime counters only ever grow; a lower reading is a device glitch and
-# would show up in the Energy dashboard as a meter reset.
-MONOTONIC_KEYS = (
-    "total_pv_energy",
-    "total_grid_output_energy",
-    "total_grid_input_energy",
-)
-# A battery level this high cannot drop to 0 % within one poll.
-SOC_GLITCH_FLOOR = 10
-# Polls in a row reporting 0 % after which the reading is accepted as real,
-# so a device that is really empty is not held at its last level forever.
-ZERO_SOC_POLLS = 3
 
 
 type MarstekConfigEntry = ConfigEntry[MarstekDataUpdateCoordinator]
@@ -66,6 +61,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
     error_state: str = ERROR_NONE
     # Polls in a row the device answered with a battery level of exactly 0 %.
     zero_soc_polls: int = 0
+    # Polls in a row each lifetime counter stayed below its previous reading.
+    falling_energy_polls: dict[str, int]
 
     def __init__(
         self,
@@ -76,6 +73,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         """Initialize the coordinator."""
         self.device_ip = config_entry.data[CONF_HOST]
         self.udp_client = udp_client
+        self.falling_energy_polls: dict[str, int] = {
+            key: 0 for key in MONOTONIC_KEYS
+        }
         super().__init__(
             hass,
             _LOGGER,
@@ -127,7 +127,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         """Fetch device data from the Marstek client library."""
         _LOGGER.debug("Start polling device: %s", self.device_ip)
         previous = self.data
-        answered_before = self.udp_client.get_last_response_time(self.device_ip)
 
         try:
             status = await self.udp_client.get_device_status(
@@ -135,16 +134,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 previous_data=previous,
                 include_pv=self.device_info.device_type in PV_DEVICE_TYPES,
             )
-        except (TimeoutError, OSError, TypeError) as err:
-            return self._missed_poll(previous, err)
+        except (TimeoutError, OSError, TypeError, MarstekNoResponse) as err:
+            self._missed_poll(err)
 
-        last_response = self.udp_client.get_last_response_time(self.device_ip)
-        if last_response is None or last_response == answered_before:
-            # The library returns the previous data when nothing answered.
-            return self._missed_poll(
-                previous, TimeoutError(f"No response from {self.device_ip}")
-            )
-
+        # Clear the repair issue once the device answers again after a long
+        # outage; the firmware version is re-read below in case it changed.
         if self.failed_polls >= UNREACHABLE_POLLS:
             ir.async_delete_issue(self.hass, DOMAIN, self.issue_id)
         if self.failed_polls:
@@ -153,28 +147,69 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 self.device_ip,
                 self.failed_polls,
             )
-            await self._async_refresh_firmware()
+            # Run in the background so a slow or hanging device info request
+            # does not delay the first status update after a recovery.
+            self.hass.async_create_task(self._async_refresh_firmware())
         self.failed_polls = 0
-        self.error_state = ERROR_NONE
-        self.last_response = last_response
+        # A poll counts as partial when a status request the device should
+        # answer stayed silent: the fields it feeds keep their previous
+        # values while the update succeeds, so the error state is the only
+        # hint that data is stale. PV is only expected once the device has
+        # answered or refused PV.GetStatus, so a non-PV device never flags
+        # it and a PV-capable one does not before its capability is known.
+        answered = self.udp_client.get_last_results(self.device_ip)
+        expected = {CMD_ES_STATUS, CMD_ES_MODE}
+        if (
+            self.device_info.device_type in PV_DEVICE_TYPES
+            and self.udp_client.is_pv_status_supported(self.device_ip) is not False
+        ):
+            expected.add(CMD_PV_GET_STATUS)
+        self.error_state = (
+            ERROR_PARTIAL_RESPONSE if expected - answered.keys() else ERROR_NONE
+        )
+        self.last_response = datetime.now(UTC)
         if status.battery_soc == 0:
             self.zero_soc_polls += 1
         else:
             self.zero_soc_polls = 0
-        return hold_glitches(previous, status, self.zero_soc_polls)
+        # Track each counter's drop streak on its own, so one resetting
+        # cannot let another's glitch through; only a real drop counts.
+        if previous is None:
+            self.falling_energy_polls = {key: 0 for key in MONOTONIC_KEYS}
+        else:
+            for key in MONOTONIC_KEYS:
+                old = getattr(previous, key)
+                new = getattr(status, key)
+                if old is not None and new is not None and new < old:
+                    self.falling_energy_polls[key] += 1
+                else:
+                    self.falling_energy_polls[key] = 0
+        return hold_glitches(
+            previous, status, self.zero_soc_polls, self.falling_energy_polls
+        )
 
     def _missed_poll(
-        self, previous: MarstekDeviceStatus | None, err: Exception
-    ) -> MarstekDeviceStatus:
-        """Keep the last data through a missed poll, then fail the update."""
-        self.failed_polls += 1
+        self, err: Exception
+    ) -> NoReturn:
+        """Count an unreachable poll, raise the repair issue, then fail the update."""
+        # Network errors are usually swallowed inside the library's status
+        # requests and surface as MarstekNoResponse, so ERROR_NETWORK mainly
+        # guards against OSError raised outside them (e.g. a closed socket).
         self.error_state = (
             ERROR_NO_RESPONSE
-            if isinstance(err, TimeoutError)
+            if isinstance(err, (TimeoutError, MarstekNoResponse))
             else ERROR_NETWORK
             if isinstance(err, OSError)
             else ERROR_INVALID_DATA
         )
+        # Invalid data means the device answered, so it breaks the streak of
+        # unreachable polls: reset the counter and clear any repair issue.
+        # The update still fails, but the unreachable advice does not apply.
+        if isinstance(err, TypeError):
+            self.failed_polls = 0
+            ir.async_delete_issue(self.hass, DOMAIN, self.issue_id)
+        else:
+            self.failed_polls += 1
         if self.failed_polls == UNREACHABLE_POLLS:
             ir.async_create_issue(
                 self.hass,
@@ -185,11 +220,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 translation_key="open_api_unreachable",
                 translation_placeholders={"host": self.device_ip},
             )
-        if previous is not None and self.failed_polls < UNAVAILABLE_POLLS:
-            _LOGGER.debug(
-                "Device %s missed poll %s: %s", self.device_ip, self.failed_polls, err
-            )
-            return previous
         raise UpdateFailed(
             translation_domain=DOMAIN,
             translation_key="device_update_failed",
@@ -200,7 +230,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         """Re-read the firmware version, as a firmware update causes an outage."""
         try:
             info = await self.udp_client.get_device_info(self.device_ip)
-        except (TimeoutError, OSError, TypeError):
+        except (TimeoutError, OSError, TypeError) as err:
+            _LOGGER.debug(
+                "Device %s firmware re-read failed: %s", self.device_ip, err
+            )
             return
         if info.version == self.device_info.version:
             return
@@ -216,30 +249,3 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             (DOMAIN, self.device_info.stable_id), self.config_entry.entry_id
         ):
             registry.async_update_device(device.id, sw_version=str(info.version))
-
-
-def hold_glitches(
-    previous: MarstekDeviceStatus | None,
-    current: MarstekDeviceStatus,
-    zero_soc_polls: int = 0,
-) -> MarstekDeviceStatus:
-    """Keep previous values where the device reports implausible readings."""
-    if previous is None:
-        return current
-    held: dict[str, object] = {}
-    for key in MONOTONIC_KEYS:
-        old, new = getattr(previous, key), getattr(current, key)
-        if old is not None and (new is None or new < old):
-            held[key] = old
-    if (
-        current.battery_soc == 0
-        and (previous.battery_soc or 0) >= SOC_GLITCH_FLOOR
-        and zero_soc_polls < ZERO_SOC_POLLS
-    ):
-        held["battery_soc"] = previous.battery_soc
-    if held:
-        _LOGGER.debug(
-            "Device %s implausible readings held: %s", current.device_ip, held
-        )
-        return replace(current, **held)
-    return current

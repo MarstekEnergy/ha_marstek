@@ -77,7 +77,8 @@
           "none": "No error",
           "no_response": "No response",
           "network_error": "Network error",
-          "invalid_data": "Invalid data"
+          "invalid_data": "Invalid data",
+          "partial_response": "Partial response"
         }
       },
       "last_response": {
@@ -129,8 +130,8 @@
   },
   "issues": {
     "open_api_unreachable": {
-      "title": "Marstek device at {host} is not responding",
-      "description": "The Marstek device at {host} has not answered its local API for 10 minutes. Its values are shown as unavailable.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
+      "title": "Marstek device at {host} is not reachable",
+      "description": "The Marstek device at {host} could not be reached or has not answered its local API for about 5 minutes. Its values are shown as unavailable.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
     }
   }
 }

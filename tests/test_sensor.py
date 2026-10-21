@@ -71,14 +71,16 @@ async def test_missed_polls(
     config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Values survive one missed poll, then become unavailable with a repair issue."""
+    """Entities become unavailable on the first missed poll; diagnostics keep showing why."""
     ids = await setup_entry(hass, config_entry)
     answered = hass.states.get(ids["last_response"]).state
 
     client.online = False
     await poll(hass, freezer)
-    assert hass.states.get(ids["battery_soc"]).state == "9"
+    # First missed poll: entities become unavailable, diagnostics show why.
+    assert hass.states.get(ids["battery_soc"]).state == STATE_UNAVAILABLE
     assert hass.states.get(ids["error_state"]).state == "no_response"
+    assert hass.states.get(ids["last_response"]).state == answered
 
     await poll(hass, freezer)
     assert hass.states.get(ids["battery_soc"]).state == STATE_UNAVAILABLE
@@ -104,24 +106,30 @@ async def test_missed_polls(
     assert device.sw_version == "302"
 
 
-async def test_glitches_held(
+async def test_soc_glitch_is_held(
     hass: HomeAssistant,
     client: FakeClient,
     config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Implausible readings keep the previous value."""
+    """A 0 % battery spike and a single counter dip are held, then accepted."""
     ids = await setup_entry(hass, config_entry)
     client.es_status.update(bat_soc=50, total_grid_output_energy=700)
     client.es_mode["bat_soc"] = 50
     await poll(hass, freezer)
     assert hass.states.get(ids["battery_soc"]).state == "50"
+    assert hass.states.get(ids["total_grid_output_energy"]).state == "700"
 
-    client.es_status.update(bat_soc=0, bat_cap=0, total_grid_output_energy=0)
+    client.es_status.update(bat_soc=0, total_grid_output_energy=0)
     client.es_mode["bat_soc"] = 0
     await poll(hass, freezer)
+    # The battery level spike to 0 % and the single counter dip are held.
     assert hass.states.get(ids["battery_soc"]).state == "50"
     assert hass.states.get(ids["total_grid_output_energy"]).state == "700"
+
+    # A counter that keeps dropping is accepted as a real reset.
+    await poll(hass, freezer)
+    assert hass.states.get(ids["total_grid_output_energy"]).state == "0"
 
     client.es_status.update(total_grid_output_energy=705)
     await poll(hass, freezer)
