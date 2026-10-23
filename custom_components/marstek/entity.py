@@ -1,5 +1,8 @@
 """Base entity for Marstek devices."""
 
+from homeassistant.components.persistent_notification import (
+    async_create as async_create_notification,
+)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -41,7 +44,7 @@ class MarstekEntity(CoordinatorEntity[MarstekDataUpdateCoordinator]):
         that the command took effect. A per-entity notification_id replaces
         the previous one, so repeated writes update instead of stacking.
         """
-        self.hass.components.persistent_notification.async_create(
+        async_create_notification(
             self.hass,
             message,
             title="Marstek",
