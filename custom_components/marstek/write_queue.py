@@ -132,8 +132,23 @@ class DebouncedWriteQueue:
                 # of pretending it never happened: success lets the caller
                 # confirm its field, failure lets it roll back knowing the
                 # device rejected the value.
+                #
+                # The action is owned by the drain, not this caller, so it is
+                # shielded: a *repeated* cancellation arriving while we wait
+                # for the real outcome must not propagate into the device
+                # write and cancel a command that may already be on the wire.
+                # Keep waiting through repeated cancellations until the action
+                # finishes, then surface its real outcome.
+                action_task = inflight[0]
                 future.cancel()
-                await inflight[0]
+                while not action_task.done():
+                    try:
+                        await asyncio.shield(action_task)
+                    except asyncio.CancelledError:
+                        continue
+                # Returns None on success, raises on failure or (shutdown)
+                # cancellation -- never a caller cancellation.
+                action_task.result()
                 return
             # Superseded by a later same-key write (still queued or already
             # running as a different write), or never queued: this caller's
