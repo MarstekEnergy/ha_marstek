@@ -1,0 +1,268 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured",
+      "missing_unique_id": "Device did not provide a stable unique identifier",
+      "unsupported_device": "This Marstek device type is not currently supported"
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the device",
+      "device_not_found": "Device not found at the specified IP address",
+      "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
+      "no_devices_found": "No Marstek devices found on the network. Please ensure your device is powered on and connected to the same network.",
+      "unsupported_device": "This Marstek device type is not currently supported"
+    },
+    "progress": {
+      "discover": "Searching for Marstek devices on the local network",
+      "title": "Marstek device discovery"
+    },
+    "step": {
+      "discover": {
+        "data": {
+          "device": "Select Device"
+        },
+        "data_description": {
+          "device": "The Marstek device discovered on your local network."
+        },
+        "title": "Marstek Energy Storage"
+      },
+      "discovery_done": {
+        "data": {
+          "device": "Select Device"
+        },
+        "data_description": {
+          "device": "The Marstek device discovered on your local network."
+        },
+        "title": "Marstek Energy Storage"
+      },
+      "manual": {
+          "data": {
+              "host": "[%key:common::config_flow::data::host%]",
+              "port": "Device UDP port"
+          },
+          "data_description": {
+              "host": "The IP address of your Marstek device on your local network.",
+              "port": "The UDP port the device listens on. Default 30000; use 49152-65535 if you configured a custom port."
+          },
+          "description": "Enter the IP address of your Marstek device. The device must be on the same local network and have Open API enabled.",
+          "title": "Add Marstek device"
+      },
+      "user": {
+        "menu_options": {
+          "discover": "Search for devices on the local network",
+          "manual": "Enter device IP address"
+        },
+        "title": "Marstek Energy Storage"
+      }
+    }
+  },
+  "entity": {
+      "binary_sensor": {
+          "charge_permission": {
+              "name": "Charge permission"
+          },
+          "connected": {
+              "name": "Connected"
+          },
+          "discharge_permission": {
+              "name": "Discharge permission"
+          }
+      },
+      "button": {
+      "factory_reset": {
+        "name": "Factory reset (clears data)"
+      },
+      "factory_reset_keep_data": {
+        "name": "Factory reset (keep data)"
+      }
+    },
+    "number": {
+      "dod": {
+        "name": "Discharge depth (write-only)"
+      },
+      "passive_cd_time": {
+        "name": "Passive cooldown (write-only)"
+      },
+      "passive_power": {
+        "name": "Passive power (write-only)"
+      }
+    },
+    "select": {
+      "device_mode": {
+        "name": "Operating mode",
+        "state": {
+          "ai": "AI",
+          "auto": "Auto",
+          "manual": "Manual",
+          "passive": "Passive",
+          "ups": "UPS"
+        }
+      },
+      "power_version": {
+        "name": "Power version"
+      }
+    },
+    "sensor": {
+      "phase_a_power": {
+        "name": "Phase A power"
+      },
+      "phase_b_power": {
+        "name": "Phase B power"
+      },
+      "battery_capacity": {
+        "name": "Battery capacity"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_rated_capacity": {
+        "name": "Battery rated capacity"
+      },
+      "battery_remaining_capacity": {
+        "name": "Battery remaining capacity"
+      },
+      "battery_soc": {
+        "name": "Battery level"
+      },
+      "battery_status": {
+        "name": "Battery status",
+        "state": {
+          "charging": "[%key:common::state::charging%]",
+          "idle": "[%key:common::state::idle%]",
+          "selling": "Selling"
+        }
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "ble_state": {
+        "name": "Bluetooth state",
+        "state": {
+          "connect": "Connected",
+          "disconnect": "Disconnected"
+        }
+      },
+      "phase_c_power": {
+        "name": "Phase C power"
+      },
+      "ct_input_energy": {
+        "name": "CT input energy"
+      },
+      "ct_output_energy": {
+        "name": "CT output energy"
+      },
+      "device_mode": {
+        "name": "Device mode",
+        "state": {
+          "ai": "AI",
+          "auto": "Auto",
+          "manual": "Manual",
+          "passive": "Passive",
+          "ups": "UPS"
+        }
+      },
+      "offgrid_power": {
+        "name": "Off-grid power"
+      },
+      "ongrid_power": {
+        "name": "Grid-tied power"
+      },
+      "pv_current": {
+        "name": "PV input {input} current"
+      },
+      "pv_power": {
+        "name": "PV input {input} power"
+      },
+      "pv_state": {
+        "name": "PV input {input} state",
+        "state": {
+          "standby": "[%key:common::state::standby%]",
+          "working": "Working"
+        }
+      },
+      "pv_voltage": {
+        "name": "PV input {input} voltage"
+      },
+      "pv_total_power": {
+        "name": "PV total power"
+      },
+      "total_grid_input_energy": {
+        "name": "Lifetime grid input energy"
+      },
+      "total_grid_output_energy": {
+        "name": "Lifetime grid output energy"
+      },
+      "total_load_energy": {
+        "name": "Lifetime load energy"
+      },
+      "total_power": {
+        "name": "Total power"
+      },
+      "total_pv_energy": {
+        "name": "Lifetime PV energy"
+      },
+      "wifi_ip": {
+        "name": "WiFi IP address"
+      },
+      "wifi_rssi": {
+        "name": "WiFi signal strength"
+      },
+      "wifi_ssid": {
+        "name": "WiFi network"
+      }
+    },
+    "switch": {
+      "bluetooth_advertising": {
+        "name": "Bluetooth advertising (write-only)"
+      },
+      "led": {
+        "name": "Front-panel LED (write-only)"
+      },
+      "ups": {
+        "name": "UPS mode (write-only)"
+      }
+    }
+  },
+  "exceptions": {
+    "device_connection_failed": {
+      "message": "Unable to connect to the Marstek device at {host}."
+    },
+    "device_update_failed": {
+      "message": "Unable to update the Marstek device at {host}."
+    },
+    "invalid_device_data": {
+      "message": "The Marstek device at {host} returned invalid data."
+    },
+    "missing_stable_id": {
+      "message": "The Marstek device at {host} did not provide a stable ID."
+    },
+    "unsupported_device": {
+      "message": "The Marstek device type {device_type} is not currently supported."
+    },
+    "device_identity_mismatch": {
+      "message": "The device at {host} ({actual}) no longer matches the one this entry was set up for ({expected}). Please reconfigure the device."
+    }
+  },
+  "services": {
+    "set_mode": {
+      "name": "Set operating mode",
+      "description": "Switch a Marstek device to a new operating mode."
+    },
+    "set_dod": {
+      "name": "Set discharge depth",
+      "description": "Set the discharge depth (DOD), 30-88 %."
+    },
+    "set_power_version": {
+      "name": "Set power version",
+      "description": "Set the charge and discharge power version, in watts."
+    },
+    "factory_reset": {
+      "name": "Factory reset",
+      "description": "Reset the device to factory settings."
+    },
+    "set_manual_schedule": {
+      "name": "Set manual schedule",
+      "description": "Replace the device's Manual-mode time schedule. Each slot is sent as its own SetMode call (single-object manual_cfg, the documented form)."
+    }
+  }
+}

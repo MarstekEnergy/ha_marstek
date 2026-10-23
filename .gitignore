@@ -1,0 +1,46 @@
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test, lint and coverage caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Test suite & dev-only config (not needed for HACS distribution)
+tests/
+pyproject.toml
+uv.lock
+
+# Logs
+*.log
+home-assistant_*.log
+
+# Reference documents (not needed in the repo)
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local agent / tooling data
+.codebuddy/
+.agents/
+.aws/
+.codex/

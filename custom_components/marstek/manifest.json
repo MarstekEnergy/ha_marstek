@@ -1,0 +1,15 @@
+{
+  "domain": "marstek",
+  "name": "Marstek",
+  "categories": ["energy.solar_batteries"],
+  "codeowners": ["@MarstekEnergy"],
+  "config_flow": true,
+  "dependencies": ["network"],
+  "documentation": "https://github.com/MarstekEnergy/hacs_marstek",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/MarstekEnergy/hacs_marstek/issues",
+  "quality_scale": "bronze",
+  "requirements": ["aiomarstek==0.2.1"],
+  "version": "0.2.1"
+}

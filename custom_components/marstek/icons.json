@@ -1,0 +1,88 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "charge_permission": {
+        "default": "mdi:battery-charging"
+      },
+      "discharge_permission": {
+        "default": "mdi:battery-minus"
+      }
+    },
+    "button": {
+      "factory_reset": {
+        "default": "mdi:restart-alert"
+      },
+      "factory_reset_keep_data": {
+        "default": "mdi:restart"
+      }
+    },
+    "number": {
+      "dod": {
+        "default": "mdi:battery-charging"
+      }
+    },
+    "select": {
+      "device_mode": {
+        "default": "mdi:cog"
+      },
+      "power_version": {
+        "default": "mdi:flash"
+      }
+    },
+    "sensor": {
+      "battery_status": {
+        "default": "mdi:battery"
+      },
+      "battery_temperature": {
+        "default": "mdi:thermometer"
+      },
+      "ble_state": {
+        "default": "mdi:bluetooth"
+      },
+      "device_mode": {
+        "default": "mdi:cog"
+      },
+      "offgrid_power": {
+        "default": "mdi:power-plug-off"
+      },
+      "ongrid_power": {
+        "default": "mdi:power-plug"
+      },
+      "pv_current": {
+        "default": "mdi:current-ac"
+      },
+      "pv_power": {
+        "default": "mdi:solar-power"
+      },
+      "pv_state": {
+        "default": "mdi:state-machine"
+      },
+      "pv_total_power": {
+        "default": "mdi:solar-power"
+      },
+      "pv_voltage": {
+        "default": "mdi:flash"
+      },
+      "total_power": {
+        "default": "mdi:gauge"
+      },
+      "wifi_ip": {
+        "default": "mdi:ip"
+      },
+      "wifi_rssi": {
+        "default": "mdi:wifi"
+      },
+      "wifi_ssid": {
+        "default": "mdi:wifi"
+      }
+    },
+    "switch": {
+      "bluetooth_advertising": {
+        "default": "mdi:bluetooth"
+      },
+      "led": {
+        "default": "mdi:led-on"
+      }
+    }
+  }
+}

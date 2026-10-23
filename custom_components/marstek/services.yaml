@@ -1,0 +1,87 @@
+set_mode:
+  name: Set operating mode
+  description: Switch a Marstek device to a new operating mode.
+  target:
+    entity:
+      integration: marstek
+  fields:
+    mode:
+      name: Mode
+      description: "Operating mode (auto, ai, manual, passive, ups)."
+      required: true
+      selector:
+        select:
+          options:
+            - "auto"
+            - "ai"
+            - "manual"
+            - "passive"
+            - "ups"
+    config:
+      name: Configuration
+      description: >-
+        Mode-specific configuration. For manual mode pass the full time-slot
+        list under manual_cfg (the Open API accepts the whole schedule in one
+        ES.SetMode payload; there is no per-slot command). For passive mode
+        pass power and cd_time. For ups mode pass enable.
+      required: false
+      selector:
+        object:
+
+set_dod:
+  name: Set discharge depth
+  description: Set the discharge depth (DOD), 30-88 %.
+  target:
+    entity:
+      integration: marstek
+  fields:
+    value:
+      name: Discharge depth
+      description: Discharge depth percentage (30-88).
+      required: true
+      selector:
+        number:
+          min: 30
+          max: 88
+          step: 1
+          unit_of_measurement: "%"
+
+set_power_version:
+  name: Set power version
+  description: Set the charge and discharge power version, in watts.
+  target:
+    entity:
+      integration: marstek
+  fields:
+    power_version:
+      name: Power version
+      description: "One of 800, 1200, 1500, 2200, 2500 watts."
+      required: true
+      selector:
+        select:
+          options:
+            - "800"
+            - "1200"
+            - "1500"
+            - "2200"
+            - "2500"
+
+factory_reset:
+  name: Factory reset
+  description: >-
+    Reset the device to factory settings. By default (keep_accumulated_data
+    false) this clears accumulated energy counters and other data; set
+    keep_accumulated_data true to preserve them.
+  target:
+    entity:
+      integration: marstek
+  fields:
+    keep_accumulated_data:
+      name: Keep accumulated data
+      description: >-
+        Omit or set false to clear all accumulated data; set true to preserve
+        lifetime energy counters.
+      required: false
+      default: false
+      selector:
+        boolean:
