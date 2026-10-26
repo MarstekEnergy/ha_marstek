@@ -95,6 +95,7 @@ class MarstekModeSelect(MarstekSelect):
             raise HomeAssistantError(
                 f"Setting the operating mode failed: {err.reason}"
             ) from err
+        self._notify_success(f"运行模式已切换为 {option}")
 
 
 class MarstekPowerVersionSelect(MarstekSelect):
