@@ -3,8 +3,10 @@
 from typing import override
 
 from aiomarstek import (
+    CMD_ES_SET_MODE,
     MarstekModeConfig,
     MarstekSetError,
+    build_command,
 )
 
 from homeassistant.components.select import (
@@ -44,12 +46,12 @@ class MarstekSelect(MarstekEntity, SelectEntity):
 class MarstekModeSelect(MarstekSelect):
     """Device operating mode selector.
 
-    Only the modes that need no extra parameters are selectable here.
-    Manual mode needs a full time-slot schedule and Passive mode needs
-    power and cd_time; both are set through the ``set_mode`` service,
-    which accepts the complete configuration. The current mode is still
-    shown even when it is Manual or Passive (a select may report a
-    ``current_option`` that is not among its ``options``).
+    Auto, AI, UPS and Manual are selectable here. Manual switches the device
+    into Manual mode without a time-slot schedule; the user configures the
+    slots in the Marstek app (a notification reminds them). Passive needs
+    power/cd_time parameters and is set through the ``set_mode`` service.
+    The current mode is still shown even when it is Passive (a select may
+    report a ``current_option`` that is not among its ``options``).
     """
 
     def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
@@ -64,16 +66,12 @@ class MarstekModeSelect(MarstekSelect):
             ),
         )
 
-    @property
-    @override
-    def current_option(self) -> str | None:
-        """Return the current operating mode (may be outside options)."""
-        return self.coordinator.data.device_mode
-
     @override
     async def _handle_coordinator_update(self) -> None:
-        """Keep the optimistic selection in sync with the device's real mode."""
-        self._attr_current_option = self.coordinator.data.device_mode
+        """Sync the select with the device's real mode after each poll."""
+        data = self.coordinator.data
+        if data is not None:
+            self._attr_current_option = data.device_mode
         await super()._handle_coordinator_update()
 
     @override
@@ -82,20 +80,43 @@ class MarstekModeSelect(MarstekSelect):
         self._attr_current_option = option
         self.async_write_ha_state()
         coordinator = self.coordinator
+        mode = option.lower()
         try:
-            await coordinator.async_write(
-                "device_mode",
-                lambda: coordinator.udp_client.set_device_mode(
-                    coordinator.device_ip,
-                    MarstekModeConfig(mode=option.lower()),
-                    port=coordinator.device_port,
-                ),
-            )
+            if mode == "manual":
+                # Manual mode normally requires a full time-slot schedule, but
+                # here we only switch the device into Manual mode and let the
+                # user configure the slots in the Marstek app. The library's
+                # MarstekModeConfig blocks Manual without slots, so the raw
+                # ES.SetMode command is sent with just the mode field.
+                await coordinator.async_write(
+                    "device_mode",
+                    lambda: coordinator.udp_client._async_send_set_command(
+                        build_command(
+                            CMD_ES_SET_MODE,
+                            {"id": 0, "config": {"mode": "Manual"}},
+                        ),
+                        coordinator.device_ip,
+                        CMD_ES_SET_MODE,
+                        port=coordinator.device_port,
+                    ),
+                )
+            else:
+                await coordinator.async_write(
+                    "device_mode",
+                    lambda: coordinator.udp_client.set_device_mode(
+                        coordinator.device_ip,
+                        MarstekModeConfig(mode=mode),
+                        port=coordinator.device_port,
+                    ),
+                )
         except MarstekSetError as err:
             raise HomeAssistantError(
                 f"Setting the operating mode failed: {err.reason}"
             ) from err
-        self._notify_success(f"运行模式已切换为 {option}")
+        if mode == "manual":
+            self._notify_success("已切换为 Manual 模式。请在 Marstek App 中配置时间段")
+        else:
+            self._notify_success(f"运行模式已切换为 {option}")
 
 
 class MarstekPowerVersionSelect(MarstekSelect):

@@ -93,6 +93,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             SCAN_INTERVAL.total_seconds(),
         )
 
+    @property
+    def silent_polls(self) -> int:
+        """Number of consecutive polls the device did not answer.
+
+        Reset to zero on the next poll that returns data. Exposed for
+        diagnostics so a download can distinguish a single dropped response
+        (``silent_polls < MAX_SILENT_POLLS``) from an outage that has crossed
+        the availability threshold, without the diagnostics module reaching
+        into a private counter.
+        """
+        return self._silent_polls
+
     @override
     async def _async_setup(self) -> None:
         """Validate device availability and cache its device information."""

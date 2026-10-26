@@ -6,6 +6,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-ha/
 venv/
 env/
 
@@ -23,9 +24,7 @@ env/
 .coverage
 htmlcov/
 
-# Test suite & dev-only config (not needed for HACS distribution)
-tests/
-pyproject.toml
+# Dev-only lock file (not needed for HACS distribution)
 uv.lock
 
 # Logs

@@ -30,9 +30,10 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek](http
 
 ### Control
 
-- Switch between operating modes. The select entity offers Auto, AI and
-  UPS (parameter-free modes); Manual (with a full time-slot schedule) and
-  Passive (with power/countdown) are set via the `set_mode` service.
+- Switch between operating modes. The select entity offers Auto, AI, Manual
+  and UPS. Manual switches the device into Manual mode; configure the time
+  slots in the Marstek app (HA shows a reminder). Passive (with power/countdown)
+  is set via the `set_mode` service.
 - Discharge depth (DOD) number entity (30–88 %)
 - Max charge/discharge power version select entity, options narrowed to
   the versions documented for your device model

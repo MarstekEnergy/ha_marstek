@@ -9,10 +9,12 @@ rules:
       home-assistant/brands repository and no brand metadata file is required.
   common-modules: done
   config-flow-test-coverage:
-    status: todo
+    status: done
     comment: |
-      Tests are static structure and pure-function checks; no config-flow
-      or service-call integration tests run against a HA instance yet.
+      Config flow tests (pytest-homeassistant-custom-component) drive the
+      user menu, manual setup (success, cannot_connect, device_not_found,
+      unsupported device, duplicate host) and broadcast discovery through
+      device selection.
   config-flow: done
   dependency-transparency: done
   docs-actions: done

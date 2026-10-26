@@ -45,10 +45,11 @@ PV_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
 
 PV_STATE_OPTIONS: Final = ("standby", "working")
 DEVICE_MODE_OPTIONS: Final = ("auto", "ai", "manual", "passive", "ups")
-# Modes that need no extra parameters: the operating-mode select only offers
-# these. Manual (needs a time-slot schedule) and Passive (needs power/cd_time)
-# are set via the set_mode service, which accepts the full configuration.
-SELECTABLE_MODE_OPTIONS: Final = ("auto", "ai", "ups")
+# Modes offered in the operating-mode select. Manual is included so the user
+# can switch into it from HA; the time-slot schedule is then configured in the
+# Marstek app (a notification reminds them). Passive still needs power/cd_time
+# parameters and is set via the set_mode service.
+SELECTABLE_MODE_OPTIONS: Final = ("auto", "ai", "manual", "ups")
 BATTERY_STATUS_OPTIONS: Final = ("selling", "charging", "idle")
 BLE_STATE_OPTIONS: Final = ("connect", "disconnect")
 
