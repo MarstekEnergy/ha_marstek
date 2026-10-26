@@ -26,7 +26,10 @@ async def async_setup_entry(
         [
             MarstekBluetoothSwitch(coordinator),
             MarstekLedSwitch(coordinator),
-            MarstekUpsSwitch(coordinator),
+            # The UPS switch is hidden: UPS is already an option in the
+            # operating-mode select, and the switch's "off" action
+            # (ups_enabled=False) has no documented use case.
+            # MarstekUpsSwitch(coordinator),
         ]
     )
 

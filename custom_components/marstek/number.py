@@ -34,8 +34,12 @@ async def async_setup_entry(
     async_add_entities(
         [
             MarstekDODNumber(coordinator),
-            MarstekPassivePowerNumber(coordinator),
-            MarstekPassiveCdTimeNumber(coordinator),
+            # Passive power/cooldown controls are hidden for now: the Open
+            # API does not reliably report the current Passive parameters, so
+            # the write-only numbers would show "unknown" indefinitely.
+            # Passive mode is still settable via the set_mode service.
+            # MarstekPassivePowerNumber(coordinator),
+            # MarstekPassiveCdTimeNumber(coordinator),
         ]
     )
 
