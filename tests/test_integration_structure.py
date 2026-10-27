@@ -100,10 +100,11 @@ def test_services_yaml_lists_all_documented_services() -> None:
     services = yaml.safe_load(
         (COMPONENT_DIR / "services.yaml").read_text(encoding="utf-8")
     )
-    # There is no per-slot service: manual schedules go through set_mode.
+    # Manual schedules have a dedicated service since v0.2.3.
     assert set(services) == {
         "factory_reset",
         "set_dod",
+        "set_manual_schedule",
         "set_mode",
         "set_power_version",
     }
