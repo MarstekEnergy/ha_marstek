@@ -181,6 +181,10 @@ so the downloaded file is safe to attach to a bug report.
 
 - Manual mode supports up to 10 time slots and is experimental (see above).
 
+## Acknowledgements
+
+We would like to thank [@DominusEcho](https://github.com/DominusEcho), [@uid0c0der](https://github.com/uid0c0der) and [@craimasjien](https://github.com/craimasjien) for their contributions to this integration.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
