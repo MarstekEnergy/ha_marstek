@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-A [Home Assistant](https://www.home-assistant.io) integration for [Marstek](https://www.marstekenergy.com/) energy storage devices (Venus series), communicating locally over the [Marstek Device Open API](https://www.marstekenergy.com/).
+A [Home Assistant](https://www.home-assistant.io) integration for [Marstek](https://www.marstekenergy.com/) energy storage devices (Venus series), communicating locally over the [Marstek Device Open API](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf).
 
 ## Supported devices
 
@@ -93,7 +93,7 @@ button) so they can be used in automations and dashboards.
 
 ### Manual mode time slots
 
-> **Experimental.** The Open API document (Rev3.1.2) shows a Manual time slot
+> **Experimental.** The [Open API document (Rev3.1.2)](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf) shows a Manual time slot
 > as an *object*, while the firmware's accepted shape (object vs array) has not
 > been confirmed on a live device. This integration accepts either form but
 > treats Manual scheduling as experimental until verified.
