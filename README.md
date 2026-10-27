@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-A [Home Assistant](https://www.home-assistant.io) integration for [Marstek](https://www.marstekenergy.com/) energy storage devices (Venus series), communicating locally over the [Marstek Device Open API](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf).
+A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energy](https://de.marstekenergy.com) devices (Venus series), communicating locally over the [Marstek Device Open API](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf).
 
 ## Supported devices
 
@@ -10,23 +10,18 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek](http
 - Venus A (VNSA-0)
 - Venus D (VNSD-0)
 
-> **Venus C** and **Venus E mini** are not yet supported. Their feature sets
-> differ (the mini has no PV inputs and fewer manual time slots; the C series
-> power versions are unconfirmed), so they are excluded until verified on real
-> hardware. If your device reports one of these types it will be rejected
-> during setup.
-
 ## Features
 
 ### Monitoring (sensors)
 
-- Battery level, power and charge/discharge status
+- Battery level, power, charge/discharge status and remaining/rated capacity
 - Device operating mode (Auto / AI / Manual / Passive / UPS)
-- Grid input/output power and CT phase powers (A/B/C)
-- Battery temperature and remaining capacity
-- WiFi signal strength
+- Grid input/output power, off-grid power, total power and CT phase powers (A/B/C)
+- Battery temperature
+- Charge and discharge permission flags; device connectivity status
+- WiFi signal strength, SSID and IP address (diagnostic, disabled by default)
 - Per-input PV power, voltage, current and state (Venus A/D)
-- Lifetime energy counters (PV, grid input/output, load)
+- Lifetime energy counters (PV, grid input/output, CT input/output, load)
 
 ### Control
 
@@ -39,7 +34,7 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek](http
   the versions documented for your device model
 - Bluetooth advertising lock switch
 - Front-panel LED switch
-- Factory reset button
+- Factory reset buttons: one clears accumulated data, one preserves it
 
 All communication stays on your local network; no cloud account is required.
 
@@ -86,50 +81,53 @@ select multiple entities, areas or devices at once.
 | `marstek.set_mode` | Switch the operating mode (Auto/AI/Manual/Passive/UPS) |
 | `marstek.set_dod` | Set the discharge depth (30–88) |
 | `marstek.set_power_version` | Set the max charge/discharge power version |
-| `marstek.factory_reset` | Reset the device to factory settings |
+| `marstek.set_manual_schedule` | Replace the device's Manual-mode time schedule |
+| `marstek.factory_reset` | Reset the device to factory settings (optionally keep accumulated data) |
 
 Most actions are also available as regular entities (select, number, switch,
 button) so they can be used in automations and dashboards.
 
-### Manual mode time slots
+### Manual mode
 
-> **Experimental.** The [Open API document (Rev3.1.2)](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf) shows a Manual time slot
-> as an *object*, while the firmware's accepted shape (object vs array) has not
-> been confirmed on a live device. This integration accepts either form but
-> treats Manual scheduling as experimental until verified.
+Switching to Manual mode from HA only tells the device to enter Manual mode;
+the actual time slots are configured in the **Marstek mobile app**. Picking
+Manual in the operating-mode select shows a reminder to set up the slots in
+the app, and there are no per-slot entities on the HA device page.
 
-The Open API takes the whole Manual schedule in a single `ES.SetMode` payload,
-so there is no per-slot service. To set a Manual schedule, call
-`marstek.set_mode` with `mode: manual` and at least one slot under
-`config.manual_cfg`. Each slot has `time_num`, `start_time`, `end_time`,
-`week_set` (bitmask, bit0 = Monday), `power` (watts) and `enable` (true/false).
+> **Experimental — writing the schedule from HA.** The integration also
+> exposes services that write the Manual schedule directly, but the
+> [Open API document (Rev3.1.2)](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf)
+> shows a single slot as an *object* while the firmware's accepted shape
+> (object vs array) has not been confirmed on a live device. Prefer the app,
+> and treat these services as experimental until verified.
+
+- `marstek.set_manual_schedule` — replace the whole schedule with a friendly
+  list of slots (`start_time`, `end_time`, `days` as `mon`..`sun`, `power`;
+  optional `enable`, `manual_set`, `time_num` which defaults to the slot's
+  position).
+- `marstek.set_mode` with `mode: manual` and `config.manual_cfg` — send the
+  raw Open API schedule; each slot needs `time_num`, `start_time`,
+  `end_time`, `week_set` (bitmask, bit0 = Monday), `power` and `enable`.
 
 ```yaml
-action: marstek.set_mode
+action: marstek.set_manual_schedule
 target:
   entity_id: select.marstek_operating_mode
 data:
-  mode: manual
-  config:
-    manual_cfg:
-      - time_num: 1
-        start_time: "00:00"
-        end_time: "06:00"
-        week_set: 127
-        power: 100
-        enable: true
-      - time_num: 2
-        start_time: "18:00"
-        end_time: "23:00"
-        week_set: 127
-        power: 250
-        enable: true
+  slots:
+    - start_time: "00:00"
+      end_time: "06:00"
+      days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+      power: 100
+    - start_time: "18:00"
+      end_time: "23:00"
+      days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+      power: 250
 ```
 
-> **Slots are updated, not replaced.** A Manual schedule write only sets the
-> slots you provide (`time_num`, `enable`); it does **not** clear slots already
-> programmed on the device for other `time_num` values, which keep running. To
-> replace the whole schedule, explicitly set every slot you want.
+> `set_mode` only updates the slots you provide and does **not** clear other
+> slots already programmed on the device; `set_manual_schedule` replaces the
+> whole schedule. Manual mode supports up to 10 time slots.
 
 ## Security considerations
 
