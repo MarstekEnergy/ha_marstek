@@ -114,9 +114,11 @@ class MarstekModeSelect(MarstekSelect):
                 f"Setting the operating mode failed: {err.reason}"
             ) from err
         if mode == "manual":
-            self._notify_success("已切换为 Manual 模式。请在 Marstek App 中配置时间段")
+            self._notify_success(
+                "Switched to Manual mode. Configure the time slots in the Marstek app"
+            )
         else:
-            self._notify_success(f"运行模式已切换为 {option}")
+            self._notify_success(f"Operating mode switched to {option}")
 
 
 class MarstekPowerVersionSelect(MarstekSelect):
@@ -168,4 +170,4 @@ class MarstekPowerVersionSelect(MarstekSelect):
             raise HomeAssistantError(
                 f"Setting the power version failed: {err.reason}"
             ) from err
-        self._notify_success(f"功率版本已设置为 {option} W")
+        self._notify_success(f"Power version set to {option} W")

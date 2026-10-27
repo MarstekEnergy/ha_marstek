@@ -95,7 +95,7 @@ class MarstekDODNumber(MarstekNumber):
             raise HomeAssistantError(
                 f"Setting the discharge depth failed: {err.reason}"
             ) from err
-        self._notify_success(f"放电深度已设置为 {value}%")
+        self._notify_success(f"Discharge depth set to {value}%")
 
 
 class MarstekPassivePowerNumber(MarstekNumber):
@@ -177,7 +177,7 @@ class MarstekPassivePowerNumber(MarstekNumber):
                 f"Setting Passive power failed: {err.reason}"
             ) from err
         self._notify_success(
-            f"Passive 功率已设置为 {coordinator.passive_power.value or 0} W"
+            f"Passive power set to {coordinator.passive_power.value or 0} W"
         )
 
 
@@ -250,5 +250,5 @@ class MarstekPassiveCdTimeNumber(MarstekNumber):
                 f"Setting Passive cooldown failed: {err.reason}"
             ) from err
         self._notify_success(
-            f"Passive 冷却时间已设置为 {coordinator.passive_cd_time.value or 0} s"
+            f"Passive cooldown set to {coordinator.passive_cd_time.value or 0} s"
         )

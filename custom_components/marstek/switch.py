@@ -89,7 +89,9 @@ class MarstekBluetoothSwitch(MarstekSwitch):
             raise HomeAssistantError(
                 f"Toggling Bluetooth advertising failed: {err.reason}"
             ) from err
-        self._notify_success(f"蓝牙广播已{'开启' if enabled else '关闭'}")
+        self._notify_success(
+            f"Bluetooth advertising {'enabled' if enabled else 'disabled'}"
+        )
 
 
 class MarstekLedSwitch(MarstekSwitch):
@@ -140,7 +142,7 @@ class MarstekLedSwitch(MarstekSwitch):
             raise HomeAssistantError(
                 f"Toggling the front-panel LED failed: {err.reason}"
             ) from err
-        self._notify_success(f"面板 LED 已{'开启' if on else '关闭'}")
+        self._notify_success(f"Front-panel LED {'enabled' if on else 'disabled'}")
 
 
 class MarstekUpsSwitch(MarstekSwitch):
@@ -191,4 +193,4 @@ class MarstekUpsSwitch(MarstekSwitch):
             )
         except MarstekSetError as err:
             raise HomeAssistantError(f"Toggling UPS mode failed: {err.reason}") from err
-        self._notify_success(f"UPS 模式已{'开启' if enabled else '关闭'}")
+        self._notify_success(f"UPS mode {'enabled' if enabled else 'disabled'}")

@@ -85,3 +85,20 @@ factory_reset:
       default: false
       selector:
         boolean:
+
+set_manual_schedule:
+  name: Set manual schedule
+  description: Replace the device's Manual-mode time schedule.
+  target:
+    entity:
+      integration: marstek
+  fields:
+    slots:
+      name: Time slots
+      description: >-
+        The full Manual-mode time schedule. Each slot needs start_time,
+        end_time, days (mon..sun) and power; manual_set, enable and time_num
+        are optional.
+      required: true
+      selector:
+        object:
