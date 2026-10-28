@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energy](https://de.marstekenergy.com) devices (Venus series), communicating locally over the [Marstek Device Open API](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf).
+A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energy](https://de.marstekenergy.com) devices (Venus series), communicating locally over the [Marstek Device Local API](<docs/Marstek Device Local API_EN (Rev3.1.2).pdf>).
 
 ## Supported devices
 
@@ -41,7 +41,7 @@ All communication stays on your local network; no cloud account is required.
 ## Prerequisites
 
 1. Your Marstek device is connected to the same LAN as Home Assistant.
-2. The **Open API** feature is enabled in the Marstek mobile app.
+2. The **local API** feature is enabled in the Marstek mobile app.
    The default UDP port is `30000`; if you configured a custom port
    (the API recommends `49152`–`65535`), enter it during manual setup.
 
@@ -96,7 +96,7 @@ the app, and there are no per-slot entities on the HA device page.
 
 > **Experimental — writing the schedule from HA.** The integration also
 > exposes services that write the Manual schedule directly, but the
-> [Open API document (Rev3.1.2)](docs/Marstek_Device_Open_API_EN_Rev3.1.2.pdf)
+> [local API document (Rev3.1.2)](<docs/Marstek Device Local API_EN (Rev3.1.2).pdf>)
 > shows a single slot as an *object* while the firmware's accepted shape
 > (object vs array) has not been confirmed on a live device. Prefer the app,
 > and treat these services as experimental until verified.
@@ -106,7 +106,7 @@ the app, and there are no per-slot entities on the HA device page.
   optional `enable`, `manual_set`, `time_num` which defaults to the slot's
   position).
 - `marstek.set_mode` with `mode: manual` and `config.manual_cfg` — send the
-  raw Open API schedule; each slot needs `time_num`, `start_time`,
+  raw local API schedule; each slot needs `time_num`, `start_time`,
   `end_time`, `week_set` (bitmask, bit0 = Monday), `power` and `enable`.
 
 ```yaml
@@ -131,7 +131,7 @@ data:
 
 ## Security considerations
 
-The Marstek Open API is an unauthenticated local UDP protocol: a command packet
+The Marstek local API is an unauthenticated local UDP protocol: a command packet
 carries only `id`, `method` and `params` — no token, nonce or signature. Until
 the device protocol or firmware documentation confirms an authentication
 mechanism, assume **any host that can reach the device's UDP port can send it
@@ -172,7 +172,7 @@ so the downloaded file is safe to attach to a bug report.
 
 ## Known limitations
 
-- Enabling the Open API in the Marstek app may disable some built-in app features to avoid command conflicts.
+- Enabling the local API in the Marstek app may disable some built-in app features to avoid command conflicts.
 
 - **Factory reset is never retried.** If the device does not answer, the button
   or service reports a failure even when the reset actually ran and the device
