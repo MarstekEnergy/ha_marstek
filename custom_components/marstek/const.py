@@ -106,3 +106,27 @@ SERVICE_FACTORY_RESET: Final = "factory_reset"
 ATTR_CONFIG: Final = "config"
 ATTR_KEEP_ACCUMULATED_DATA: Final = "keep_accumulated_data"
 ATTR_POWER_VERSION: Final = "power_version"
+
+# --- Sidebar panel ---------------------------------------------------------
+# The panel is a vanilla custom element (no build step, no external deps),
+# registered via panel_custom. HA injects `hass` into the element; the panel
+# reads marstek entities from hass.entities (filtered by platform) and matches
+# them by translation_key so it survives entity renames / language changes.
+PANEL_TITLE: Final = "Marstek"
+PANEL_ICON: Final = "mdi:home-battery"
+# URL path the panel is served at in the frontend (#/marstek-panel).
+PANEL_URL_PATH: Final = "marstek-panel"
+# Name of the custom element; must match customElements.define() in panel.js.
+PANEL_COMPONENT_NAME: Final = "marstek-panel"
+# Static URL under which panel.js / echarts are served. Every browser asset
+# lives in the frontend/ subpackage, so the URL mirrors the real location and
+# the component root stays readable (Python modules + brand/ + translations/).
+PANEL_JS_URL: Final = "/marstek_static/frontend/panel.js"
+ECHARTS_JS_URL: Final = "/marstek_static/frontend/echarts.min.js"
+LITEPICKER_JS_URL: Final = "/marstek_static/frontend/litepicker.js"
+LITEPICKER_CSS_URL: Final = "/marstek_static/frontend/litepicker.css"
+# Device product images (one static directory; files resolved per device type).
+MARSTEK_IMG_URL: Final = "/marstek_static/frontend/img"
+# Panel wordmark: served from the brand asset shipped for HACS, so the
+# repository holds a single copy. The URL mirrors the real location.
+MARSTEK_LOGO_URL: Final = "/marstek_static/brand/logo@2x.png"

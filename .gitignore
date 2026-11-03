@@ -45,3 +45,8 @@ Thumbs.db
 .agents/
 .aws/
 .codex/
+
+# Local scratch workspace: API doc drafts, review notes, ad-hoc experiments.
+# Everything in here is deliberately untracked — never referenced by the
+# integration at runtime, so it must not reach HACS.
+ignore/

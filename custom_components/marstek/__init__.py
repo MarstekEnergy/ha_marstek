@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 import voluptuous as vol
 from aiomarstek import MarstekModeConfig, MarstekSetError
+from homeassistant.components.frontend import async_remove_panel
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.panel_custom import (
+    async_register_panel as async_register_custom_panel,
+)
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -14,7 +20,20 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, power_versions_for
+from .const import (
+    DOMAIN,
+    ECHARTS_JS_URL,
+    LITEPICKER_CSS_URL,
+    LITEPICKER_JS_URL,
+    MARSTEK_IMG_URL,
+    MARSTEK_LOGO_URL,
+    PANEL_COMPONENT_NAME,
+    PANEL_ICON,
+    PANEL_JS_URL,
+    PANEL_TITLE,
+    PANEL_URL_PATH,
+    power_versions_for,
+)
 from .coordinator import (
     MARSTEK_UDP_CLIENT,
     MarstekConfigEntry,
@@ -79,7 +98,80 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     _async_setup_services(hass)
 
+    await _async_setup_panel(hass)
+
     return True
+
+
+async def _async_setup_panel(hass: HomeAssistant) -> None:
+    """Register the Marstek sidebar panel and its static resources.
+
+    The panel is a vanilla custom element (frontend/panel.js) backed by a local
+    ECharts bundle for the statistics charts. ``panel_custom``'s register
+    helper has no update flag, so any prior panel is removed first to keep
+    registration idempotent across integration reloads; static paths are
+    best-effort because a previous load may already serve them.
+    """
+    # Browser assets are grouped in frontend/; brand/ stays at the component
+    # root because HACS reads it from there.
+    component_dir = Path(__file__).parent
+    static_dir = component_dir / "frontend"
+    # Register one path at a time. The router rejects a route that is already
+    # registered (aiohttp raises RuntimeError), and a single batched call
+    # aborts at the *first* conflict — so after any integration reload the
+    # routes listed after panel.js were silently skipped. That is how the
+    # brand wordmark disappeared: it was appended to the list later, and only
+    # a full HA restart ever registered it. Per-path registration keeps newly
+    # added entries working on reload.
+    static_paths = (
+        StaticPathConfig(PANEL_JS_URL, str(static_dir / "panel.js"), False),
+        StaticPathConfig(ECHARTS_JS_URL, str(static_dir / "echarts.min.js"), False),
+        StaticPathConfig(LITEPICKER_JS_URL, str(static_dir / "litepicker.js"), False),
+        StaticPathConfig(LITEPICKER_CSS_URL, str(static_dir / "litepicker.css"), False),
+        # The navbar wordmark is served straight from brand/, so the panel and
+        # HACS share one copy of the asset.
+        StaticPathConfig(
+            MARSTEK_LOGO_URL, str(component_dir / "brand" / "logo@2x.png"), False
+        ),
+        StaticPathConfig(MARSTEK_IMG_URL, str(static_dir / "img"), False),
+    )
+    for config in static_paths:
+        try:
+            await hass.http.async_register_static_paths([config])
+        except (ValueError, RuntimeError) as err:
+            # Already served by a previous load of this integration.
+            _LOGGER.debug(
+                "Marstek static path %s already registered: %s",
+                config.url_path,
+                err,
+            )
+
+    # Re-register cleanly: remove any prior panel (ignore if absent) then add.
+    try:
+        async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
+    except ValueError:
+        pass
+
+    # Cache-buster: append the panel.js mtime as a query param so the module
+    # URL changes whenever the file changes on disk. The static route matches
+    # on the path only, so the query is ignored server-side. Without this,
+    # HA serves no Cache-Control header and browsers heuristically cache the
+    # old JS until it fully expires.
+    try:
+        panel_stamp = int((static_dir / "panel.js").stat().st_mtime)
+    except OSError:
+        panel_stamp = 0
+
+    await async_register_custom_panel(
+        hass,
+        frontend_url_path=PANEL_URL_PATH,
+        webcomponent_name=PANEL_COMPONENT_NAME,
+        module_url=f"{PANEL_JS_URL}?v={panel_stamp}",
+        sidebar_title=PANEL_TITLE,
+        sidebar_icon=PANEL_ICON,
+        require_admin=False,
+        config_panel_domain=DOMAIN,
+    )
 
 
 @callback

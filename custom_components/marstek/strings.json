@@ -64,6 +64,9 @@
           "connected": {
               "name": "Connected"
           },
+          "ct_state": {
+              "name": "CT connected"
+          },
           "discharge_permission": {
               "name": "Discharge permission"
           }
@@ -201,8 +204,17 @@
       "total_pv_energy": {
         "name": "Lifetime PV energy"
       },
+      "wifi_dns": {
+        "name": "WiFi DNS server"
+      },
+      "wifi_gateway": {
+        "name": "WiFi gateway"
+      },
       "wifi_ip": {
         "name": "WiFi IP address"
+      },
+      "wifi_netmask": {
+        "name": "WiFi subnet mask"
       },
       "wifi_rssi": {
         "name": "WiFi signal strength"

@@ -29,6 +29,7 @@ async def async_setup_entry(
         [
             MarstekChargePermissionBinarySensor(coordinator),
             MarstekDischargePermissionBinarySensor(coordinator),
+            MarstekCTStateBinarySensor(coordinator),
             MarstekConnectedBinarySensor(coordinator),
         ]
     )
@@ -74,6 +75,22 @@ class MarstekDischargePermissionBinarySensor(MarstekPermissionBinarySensor):
                 translation_key="discharge_permission",
                 name="Discharge permission",
                 icon="mdi:battery-minus",
+            ),
+        )
+
+
+class MarstekCTStateBinarySensor(MarstekPermissionBinarySensor):
+    """CT connection flag from ES.GetMode / EM.GetStatus."""
+
+    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
+        """Initialize the CT-connected binary sensor."""
+        super().__init__(
+            coordinator,
+            BinarySensorEntityDescription(
+                key="ct_state",
+                translation_key="ct_state",
+                name="CT connected",
+                icon="mdi:current-ac",
             ),
         )
 

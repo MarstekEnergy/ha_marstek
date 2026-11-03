@@ -1,8 +1,5 @@
 """Base entity for Marstek devices."""
 
-from homeassistant.components.persistent_notification import (
-    async_create as async_create_notification,
-)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -36,17 +33,15 @@ class MarstekEntity(CoordinatorEntity[MarstekDataUpdateCoordinator]):
         )
 
     def _notify_success(self, message: str) -> None:
-        """Pop a confirmation notification for a successful device write.
+        """Feedback hook for a successful device write.
 
-        Home Assistant has no success-toast API for custom integrations
-        (only errors surface as toasts), so write-only controls like DOD,
-        Bluetooth advertising, LED and UPS would otherwise give no feedback
-        that the command took effect. A per-entity notification_id replaces
-        the previous one, so repeated writes update instead of stacking.
+        Historically this created a persistent notification so write-only
+        controls (DOD, Bluetooth advertising, LED, UPS, power version,
+        operating mode) had visible feedback. The sidebar panel now shows
+        its own success/error toasts for these actions, so the persistent
+        notification is suppressed to avoid double-messaging. The method is
+        kept as the single feedback hook so callers do not need to change
+        and a future transport (e.g. an event fired to the panel) can be
+        added here without touching every entity.
         """
-        async_create_notification(
-            self.hass,
-            message,
-            title="Marstek",
-            notification_id=f"marstek_{self.entity_description.key}_success",
-        )
+        return None

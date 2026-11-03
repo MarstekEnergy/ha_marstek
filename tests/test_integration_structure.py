@@ -221,6 +221,7 @@ def test_binary_sensor_platform_creates_permission_sensors() -> None:
                 instantiated.append(elt.func.id)
     assert "MarstekChargePermissionBinarySensor" in instantiated
     assert "MarstekDischargePermissionBinarySensor" in instantiated
+    assert "MarstekCTStateBinarySensor" in instantiated
     assert "MarstekConnectedBinarySensor" in instantiated
 
 
@@ -235,6 +236,27 @@ def test_connectivity_sensor_reports_coordinator_status() -> None:
     # instead of going unavailable itself.
     assert "def available" in source
     assert "return True" in source
+
+
+def test_sensor_platform_exposes_wifi_network_details() -> None:
+    """Wifi.GetStatus gateway/netmask/DNS are surfaced as sensors."""
+    source = (COMPONENT_DIR / "sensor.py").read_text(encoding="utf-8")
+    for key in ("wifi_gateway", "wifi_netmask", "wifi_dns"):
+        assert f'key="{key}"' in source
+        assert f'translation_key="{key}"' in source
+
+
+def test_new_entity_keys_have_translations() -> None:
+    """Every new entity key has a name in strings.json and en.json."""
+    keys = {
+        "binary_sensor": ["ct_state"],
+        "sensor": ["wifi_gateway", "wifi_netmask", "wifi_dns"],
+    }
+    for filename in ("strings.json", "translations/en.json"):
+        data = json.loads((COMPONENT_DIR / filename).read_text(encoding="utf-8"))
+        for domain, entity_keys in keys.items():
+            for key in entity_keys:
+                assert key in data["entity"][domain], f"{filename} missing {domain}.{key}"
 
 
 def test_coordinator_delegates_to_debounced_write_queue() -> None:
@@ -463,11 +485,18 @@ def test_set_manual_schedule_service_registered() -> None:
 
 
 def test_write_only_controls_notify_on_success() -> None:
-    """Write-only controls pop a success notification so the user gets feedback."""
+    """Write-only controls route feedback through the _notify_success hook.
+
+    The sidebar panel renders its own success/error toasts, so the hook no
+    longer creates a persistent notification (it is a no-op kept as the
+    single feedback seam). The call sites in the write-only entities must
+    still invoke it so a future transport can be added in one place.
+    """
     entity = (COMPONENT_DIR / "entity.py").read_text(encoding="utf-8")
     assert "_notify_success" in entity
-    assert "from homeassistant.components.persistent_notification import" in entity
-    assert "async_create_notification(" in entity
+    # The persistent-notification transport was removed in favour of the
+    # panel toasts; importing it here would be dead code.
+    assert "persistent_notification" not in entity
     for module in ("number", "switch", "select"):
         source = (COMPONENT_DIR / f"{module}.py").read_text(encoding="utf-8")
         assert "_notify_success" in source, (

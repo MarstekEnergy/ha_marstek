@@ -121,7 +121,6 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         translation_key="battery_rated_capacity",
         device_class=SensorDeviceClass.ENERGY_STORAGE,
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
-        entity_registry_enabled_default=False,
     ),
     MarstekSensorEntityDescription(
         key="battery_capacity",
@@ -146,7 +145,6 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         translation_key="ble_state",
         device_class=SensorDeviceClass.ENUM,
         options=list(BLE_STATE_OPTIONS),
-        entity_registry_enabled_default=False,
     ),
     MarstekSensorEntityDescription(
         key="ongrid_power",
@@ -233,7 +231,6 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        entity_registry_enabled_default=False,
     ),
     MarstekSensorEntityDescription(
         key="ct_output_energy",
@@ -241,7 +238,6 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        entity_registry_enabled_default=False,
     ),
     MarstekSensorEntityDescription(
         key="wifi_rssi",
@@ -249,19 +245,31 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
         state_class=SensorStateClass.MEASUREMENT,
-        entity_registry_enabled_default=False,
     ),
     MarstekSensorEntityDescription(
         key="wifi_ssid",
         translation_key="wifi_ssid",
         icon="mdi:wifi",
-        entity_registry_enabled_default=False,
     ),
     MarstekSensorEntityDescription(
         key="wifi_ip",
         translation_key="wifi_ip",
         icon="mdi:ip",
-        entity_registry_enabled_default=False,
+    ),
+    MarstekSensorEntityDescription(
+        key="wifi_gateway",
+        translation_key="wifi_gateway",
+        icon="mdi:router-network",
+    ),
+    MarstekSensorEntityDescription(
+        key="wifi_netmask",
+        translation_key="wifi_netmask",
+        icon="mdi:network-outline",
+    ),
+    MarstekSensorEntityDescription(
+        key="wifi_dns",
+        translation_key="wifi_dns",
+        icon="mdi:dns",
     ),
     *_pv_input_sensor_descriptions(),
 )
