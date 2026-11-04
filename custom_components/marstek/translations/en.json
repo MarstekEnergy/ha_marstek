@@ -77,11 +77,14 @@
             },
             "factory_reset_keep_data": {
                 "name": "Factory reset (keep data)"
+            },
+            "restart": {
+                "name": "Restart device"
             }
         },
         "number": {
             "dod": {
-                "name": "Discharge depth (write-only)"
+                "name": "Discharge depth"
             },
             "passive_cd_time": {
                 "name": "Passive cooldown (write-only)"
@@ -126,6 +129,63 @@
             },
             "battery_soc": {
                 "name": "Battery level"
+            },
+            "battery_soh": {
+                "name": "Battery state of health"
+            },
+            "battery_total_input_energy": {
+                "name": "Lifetime battery charge energy"
+            },
+            "battery_total_output_energy": {
+                "name": "Lifetime battery discharge energy"
+            },
+            "backup_input_energy": {
+                "name": "Backup input energy"
+            },
+            "backup_output_energy": {
+                "name": "Backup output energy"
+            },
+            "energy_day_charge": {
+                "name": "Daily charge energy"
+            },
+            "energy_day_discharge": {
+                "name": "Daily discharge energy"
+            },
+            "energy_month_charge": {
+                "name": "Monthly charge energy"
+            },
+            "energy_month_discharge": {
+                "name": "Monthly discharge energy"
+            },
+            "energy_total_charge": {
+                "name": "Total charge energy"
+            },
+            "energy_total_discharge": {
+                "name": "Total discharge energy"
+            },
+            "ems_error": {
+                "name": "EMS error code"
+            },
+            "bms_error": {
+                "name": "BMS error code"
+            },
+            "inv_error": {
+                "name": "Inverter error code"
+            },
+            "mppt_error": {
+                "name": "MPPT error code"
+            },
+            "ems_version": {
+                "name": "EMS firmware"
+            },
+            "boot_version": {
+                "name": "Boot firmware"
+            },
+            "bms_version": {
+                "name": "BMS firmware"
+            },
+            "inverter_version": {
+                "name": "Inverter firmware"
             },
             "battery_status": {
                 "name": "Battery status",
@@ -225,10 +285,10 @@
             },
         "switch": {
             "bluetooth_advertising": {
-                "name": "Bluetooth advertising (write-only)"
+                "name": "Bluetooth advertising"
             },
             "led": {
-                "name": "Front-panel LED (write-only)"
+                "name": "Front-panel LED"
             },
             "ups": {
                 "name": "UPS mode (write-only)"

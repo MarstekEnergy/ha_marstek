@@ -15,9 +15,10 @@
  * (with a slug-based fallback) and splits display state (sensor/binary_sensor)
  * from control targets (select/number/switch/button).
  *
- * Cloud-only / MQTT cd=xx data (history breakdowns, error list, battery-pack
- * list, OTA, parallel mode, anti-reverse, restart, wifi history) is
- * shown as explicit placeholders because the local UDP API does not expose it.
+ * Restart, the fault list and the charge/discharge energy totals come from the
+ * local Open API (Sys.Reboot, Err.Get, Energy.GetData). Features that no local
+ * command exposes (battery-pack list, OTA, parallel mode, anti-reverse) are not
+ * shown at all.
  */
 (() => {
   // Resolve bundled assets relative to this module instead of hard-coding
@@ -37,6 +38,28 @@
     battery_remaining_capacity: { label: "Remaining", unit: "Wh" },
     battery_capacity: { label: "Capacity", unit: "Wh" },
     battery_rated_capacity: { label: "Rated Capacity", unit: "Wh" },
+    battery_soh: { label: "Battery SOH", unit: "%" },
+    battery_total_input_energy: { label: "Battery Charged", unit: "Wh" },
+    battery_total_output_energy: { label: "Battery Discharged", unit: "Wh" },
+    backup_input_energy: { label: "Backup Input", unit: "Wh" },
+    backup_output_energy: { label: "Backup Output", unit: "Wh" },
+    // Energy.GetData counters (device-reported, no recorder math).
+    energy_day_charge: { label: "Charge Today", unit: "Wh" },
+    energy_day_discharge: { label: "Discharge Today", unit: "Wh" },
+    energy_month_charge: { label: "Charge Month", unit: "Wh" },
+    energy_month_discharge: { label: "Discharge Month", unit: "Wh" },
+    energy_total_charge: { label: "Charge Total", unit: "Wh" },
+    energy_total_discharge: { label: "Discharge Total", unit: "Wh" },
+    // Err.Get bitmasks (hex strings from the firmware).
+    ems_error: { label: "EMS Error", unit: "" },
+    bms_error: { label: "BMS Error", unit: "" },
+    inv_error: { label: "INV Error", unit: "" },
+    mppt_error: { label: "MPPT Error", unit: "" },
+    // Sys.GetInfo firmware build numbers.
+    ems_version: { label: "EMS Firmware", unit: "" },
+    boot_version: { label: "Boot Firmware", unit: "" },
+    bms_version: { label: "BMS Firmware", unit: "" },
+    inverter_version: { label: "Inverter Firmware", unit: "" },
     device_mode: { label: "Operating Mode", unit: "" },
     ongrid_power: { label: "Grid Power", unit: "W" },
     offgrid_power: { label: "Off-grid Power", unit: "W" },
@@ -67,6 +90,7 @@
     power_version: { label: "Power Version", unit: "W" },
     bluetooth_advertising: { label: "Bluetooth Advertising", unit: "" },
     led: { label: "Front-panel LED", unit: "" },
+    restart: { label: "Restart device", unit: "" },
   };
 
   // Inline stroke icons (SF-Symbols-ish) so the navbar menu needs no icon font.
@@ -489,23 +513,30 @@
     }
     return { charge, discharge, incomplete };
   }
-  // Fill the Information tab's Charge/Discharge Today cards from local
-  // history (now/today 保留 recorder)。月度卡片暂不查 recorder，占位等数据源接入。
+  // Fill the Information tab's Charge/Discharge Today cards.
+  //
+  // The device's own counters (Energy.GetData: day/month/total) are rendered
+  // directly by renderInformation, so they never need recorder math. This is
+  // only the legacy fallback for firmware that does not answer that command:
+  // integrate the battery_power history for today (the month has no local
+  // source then, and stays "—"). A row that already shows a device value is
+  // left untouched.
   async function fillChargeDischarge(panel, d) {
-    const hass = panel._hass;
-    const now = Date.now();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const set = (key, wh, incomplete) => {
+    const rowIsEmpty = (key) => {
       const el = panel.querySelector(`[data-stat="${key}"]`);
-      if (!el) return;
-      el.textContent = wh == null || incomplete ? "—" : (wh / 1000).toFixed(2) + " kWh";
+      return !!el && el.textContent === "—";
     };
-    const t = await chargeDischargeForRange(hass, d, today.getTime(), now);
-    set("charge_today", t.charge, t.incomplete);
-    set("discharge_today", t.discharge, t.incomplete);
-    // 月度总数暂不查 recorder，占位等数据源接入
-    set("charge_month", null, true);
-    set("discharge_month", null, true);
+    if (!rowIsEmpty("charge_today") && !rowIsEmpty("discharge_today")) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const t = await chargeDischargeForRange(panel._hass, d, today.getTime(), Date.now());
+    if (t.incomplete) return;
+    const set = (key, wh) => {
+      if (wh == null || !rowIsEmpty(key)) return;
+      panel.querySelector(`[data-stat="${key}"]`).textContent = (wh / 1000).toFixed(2) + " kWh";
+    };
+    set("charge_today", t.charge);
+    set("discharge_today", t.discharge);
   }
   // Split a power history (battery_power magnitude) into charge/discharge
   // series using the battery_status timeline. status values: "charging" →
@@ -939,7 +970,7 @@
     table.mk-table { width:100%; border-collapse:collapse; font-size:13px; }
     table.mk-table th, table.mk-table td { padding:12px 8px; text-align:center; border-bottom:1px solid var(--border); }
     table.mk-table th { color:var(--sub); font-weight:600; font-size:12px; }
-    .mk-dot { display:inline-block; width:10px; height:10px; border-radius:50%; } .mk-dot.on { background:var(--green); } .mk-dot.off { background:#C7C7CC; }
+    .mk-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; } .mk-dot.on { background:var(--green); } .mk-dot.off { background:#C7C7CC; } .mk-dot.warn { background:var(--red); }
     .mk-legend { display:flex; gap:16px; font-size:12px; color:var(--sub); padding:0 24px 12px; }
     .mk-legend .d { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
     /* Range picker — two inputs joined by a separator. */
@@ -1008,10 +1039,21 @@
     const online = val(d, "connected") === "on";
     const soc = num(d, "battery_soc");
     const socPct = soc === null ? 0 : Math.max(0, Math.min(100, soc));
-    // The device reports version 0 when it cannot read its firmware string,
-    // so a zero/blank value means "unknown" rather than firmware "0".
+    // Firmware: Sys.GetInfo reports one build number per subsystem, which is
+    // more useful than the GetDevice version string. That string comes back as
+    // 0 when the firmware cannot read it, so a zero/blank value means
+    // "unknown" rather than firmware "0".
+    const fwParts = [
+      ["EMS", num(d, "ems_version")],
+      ["BMS", num(d, "bms_version")],
+      ["INV", num(d, "inverter_version")],
+    ].filter(([, v]) => v !== null);
     const fw = String(d.swVersion ?? "").trim();
-    const fwText = fw && fw !== "0" ? fw : "—";
+    const fwText = fwParts.length
+      ? fwParts.map(([k, v]) => `${k} ${v}`).join(" · ")
+      : fw && fw !== "0"
+        ? fw
+        : "—";
     const img = deviceImage(d);
     const icon = img
       ? `<img class="mk-device-img" data-devimg src="${esc(img)}" alt="${esc(d.name)}"><span class="mk-device-emoji">🔋</span>`
@@ -1044,7 +1086,7 @@
           </div>
           <div class="mk-spec">
             <span><b>Model</b>${esc(d.model || "—")}</span>
-            <span><b>Firmware</b>${esc(d.swVersion || "—")}</span>
+            <span><b>Firmware</b>${esc(fwText)}</span>
             <span><b>Mode</b><span data-meta-mode>${esc(val(d, "device_mode") || "—")}</span></span>
             <span><b>WiFi</b><span data-meta-wifi>${esc(val(d, "wifi_ssid") || "—")}</span>${sigHtml(val(d, "wifi_rssi"))}</span>
             <div class="mk-soc-seg" data-soc-seg title="Battery level">${socSegs}</div>
@@ -1085,10 +1127,13 @@
     energy.push({ l: "Grid Purchase", v: fmt(val(d, "total_grid_input_energy"), "Wh"), e: "total_grid_input_energy" });
     energy.push({ l: "Grid Sell", v: fmt(val(d, "total_grid_output_energy"), "Wh"), e: "total_grid_output_energy" });
     energy.push({ l: "Battery Power", v: fmt(val(d, "battery_power"), "W"), e: "battery_power" });
-    energy.push({ l: "Charge Today", k: "charge_today" });
-    energy.push({ l: "Discharge Today", k: "discharge_today" });
-    energy.push({ l: "Charge Month", k: "charge_month" });
-    energy.push({ l: "Discharge Month", k: "discharge_month" });
+    // Charge/discharge totals come straight from the device (Energy.GetData):
+    // the k: keys let fillChargeDischarge fall back to recorder history only
+    // when the firmware does not answer that command.
+    energy.push({ l: "Charge Today", v: fmt(val(d, "energy_day_charge"), "Wh"), k: "charge_today", e: "energy_day_charge" });
+    energy.push({ l: "Discharge Today", v: fmt(val(d, "energy_day_discharge"), "Wh"), k: "discharge_today", e: "energy_day_discharge" });
+    energy.push({ l: "Charge Month", v: fmt(val(d, "energy_month_charge"), "Wh"), k: "charge_month", e: "energy_month_charge" });
+    energy.push({ l: "Discharge Month", v: fmt(val(d, "energy_month_discharge"), "Wh"), k: "discharge_month", e: "energy_month_discharge" });
     energy.push({ l: "Load Power", v: fmt(val(d, "total_power"), "W"), e: "total_power" });
     energy.push({ l: "Load Energy", v: fmt(val(d, "total_load_energy"), "Wh"), e: "total_load_energy" });
     energy.push({ l: "CT Input", v: fmt(val(d, "ct_input_energy"), "Wh"), e: "ct_input_energy" });
@@ -1097,6 +1142,7 @@
     // phase). Energy values live in the Energy card, not duplicated here.
     const basic = [
       ["Temperature", fmt(val(d, "battery_temperature"), "°C"), "battery_temperature"],
+      ["Battery SOH", fmt(val(d, "battery_soh"), "%"), "battery_soh"],
       ["Remaining Capacity", fmt(val(d, "battery_remaining_capacity"), "Wh"), "battery_remaining_capacity"],
       ["Off-grid Power", fmt(val(d, "offgrid_power"), "W"), "offgrid_power"],
       ["Phase A", fmt(val(d, "phase_a_power"), "W"), "phase_a_power"],
@@ -1144,7 +1190,7 @@
     return `
       ${renderHeader(d, stats)}
       <div style="margin-top:20px">${renderStatistics(d, statTab, self)}</div>
-      ${renderErrors()}`;
+      ${renderErrors(d)}`;
   }
 
   // --- Tab 2: statistics ---------------------------------------------------
@@ -1274,16 +1320,28 @@
       data,
     });
     // Render a grouped bar chart from bucketed energy (Wh) series and write
-    // a per-series total string into totalsEl. buckets: [{name,color,map:Map(ms→Wh),total}].
-    const renderBars = (el, buckets, gran, totalsEl, emptyMsg) => {
-      const keys = [];
-      for (const b of buckets) for (const k of b.map.keys()) if (!keys.includes(k)) keys.push(k);
-      keys.sort((a, b) => a - b);
-      const labels = keys.map((t) =>
-        gran === "month"
-          ? new Date(t).toLocaleString(undefined, { month: "short" })
-          : `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}`
-      );
+    // a per-series total string into totalsEl. buckets: [{name,color,map:Map(key→Wh),total}].
+    // `cats` overrides the x axis: [{key, label}] keeps the categories in the
+    // given order instead of deriving labels from the bucket timestamps.
+    const renderBars = (el, buckets, gran, totalsEl, emptyMsg, cats) => {
+      // With explicit categories the axis is fixed, so a bucket that happens to
+      // be missing a category still renders an empty slot at the right index
+      // instead of shifting every bar one label to the left.
+      let keys;
+      if (cats) {
+        keys = cats.map((c) => c.key);
+      } else {
+        keys = [];
+        for (const b of buckets) for (const k of b.map.keys()) if (!keys.includes(k)) keys.push(k);
+        keys.sort((a, b) => a - b);
+      }
+      const labels = cats
+        ? cats.map((c) => c.label)
+        : keys.map((t) =>
+            gran === "month"
+              ? new Date(t).toLocaleString(undefined, { month: "short" })
+              : `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}`
+          );
       const series = buckets.map((b) => ({
         name: b.name, type: "bar", barMaxWidth: 26,
         itemStyle: { color: b.color, borderRadius: [5, 5, 0, 0] },
@@ -1334,38 +1392,72 @@
     const batTotalsEl = panel.root.querySelector("[data-battery-totals]");
     if (batEl) {
       if (statTab === "month") {
-        // Long period: daily energy throughput. The charge/discharge split
-        // needs the battery_status timeline (raw history), which is purged
-        // after ~10 days, so a month cannot be rebuilt from raw rows. Long-term
-        // statistics keep the hourly mean battery_power forever, so integrate
-        // those into per-day Wh instead: mean W × bucket hours.
-        const eid = d.entityIds.battery_power;
-        const map = new Map();
-        let total = 0;
-        if (eid) {
-          const rows = await fetchStatistics(panel._hass, eid, startMs, endMs, "day", ["mean"]);
-          for (const r of rows) {
-            if (r.mean == null) continue;
-            const wh = r.mean * ((r.end - r.start) / 3600000);
-            const key = new Date(r.start).setHours(0, 0, 0, 0);
-            map.set(key, (map.get(key) || 0) + wh);
-            total += wh;
+        // Energy.GetData returns the device's own charge/discharge counters for
+        // today, the current month and the lifetime total in one reply, so the
+        // month card no longer integrates hourly mean battery_power out of
+        // long-term statistics. Today and the month share a scale; the lifetime
+        // total is an order of magnitude larger, so it goes in the caption
+        // instead of flattening both bars into a pixel.
+        const cats = [
+          { key: 0, label: "Today", charge: num(d, "energy_day_charge"), discharge: num(d, "energy_day_discharge") },
+          { key: 1, label: "This month", charge: num(d, "energy_month_charge"), discharge: num(d, "energy_month_discharge") },
+        ];
+        const hasCounters = cats.some((c) => c.charge != null || c.discharge != null);
+        if (hasCounters) {
+          const bucket = (name, color, field) => {
+            const map = new Map();
+            let total = 0;
+            for (const c of cats) {
+              if (c[field] == null) continue;
+              map.set(c.key, c[field]);
+              total += c[field];
+            }
+            return { name, color, map, total };
+          };
+          if (batTotalsEl) {
+            const show = (wh) => (wh == null ? "—" : (wh / 1000).toFixed(2) + " kWh");
+            batTotalsEl.textContent =
+              `Device counters · lifetime: charge ${show(num(d, "energy_total_charge"))}` +
+              ` · discharge ${show(num(d, "energy_total_discharge"))}`;
           }
-        }
-        if (!map.size) {
-          // Statistics disabled or not generated yet: integrate whatever raw
-          // rows the recorder still holds, per day. Partial, but better than
-          // an empty card.
-          const raw = await pullRaw("battery_power");
-          for (let i = 1; i < raw.length; i++) {
-            const wh = raw[i - 1].v * ((raw[i].t - raw[i - 1].t) / 3600000);
-            const key = new Date(raw[i - 1].t).setHours(0, 0, 0, 0);
-            map.set(key, (map.get(key) || 0) + wh);
-            total += wh;
+          renderBars(
+            batEl,
+            [bucket("Charge", "#34C759", "charge"), bucket("Discharge", "#FF3B30", "discharge")],
+            "day",
+            null,
+            "No energy counters yet",
+            cats
+          );
+        } else {
+          // Firmware that does not answer Energy.GetData: fall back to the
+          // long-term statistics, which keep the hourly mean battery_power
+          // forever. Raw history is purged after ~10 days, so it cannot carry
+          // a month on its own.
+          const eid = d.entityIds.battery_power;
+          const map = new Map();
+          let total = 0;
+          if (eid) {
+            const rows = await fetchStatistics(panel._hass, eid, startMs, endMs, "day", ["mean"]);
+            for (const r of rows) {
+              if (r.mean == null) continue;
+              const wh = r.mean * ((r.end - r.start) / 3600000);
+              const key = new Date(r.start).setHours(0, 0, 0, 0);
+              map.set(key, (map.get(key) || 0) + wh);
+              total += wh;
+            }
           }
+          if (!map.size) {
+            const raw = await pullRaw("battery_power");
+            for (let i = 1; i < raw.length; i++) {
+              const wh = raw[i - 1].v * ((raw[i].t - raw[i - 1].t) / 3600000);
+              const key = new Date(raw[i - 1].t).setHours(0, 0, 0, 0);
+              map.set(key, (map.get(key) || 0) + wh);
+              total += wh;
+            }
+          }
+          const buckets = map.size ? [{ name: "Throughput", color: "#5AC8FA", map, total }] : [];
+          renderBars(batEl, buckets, "day", batTotalsEl, "No battery history yet");
         }
-        const buckets = map.size ? [{ name: "Throughput", color: "#5AC8FA", map, total }] : [];
-        renderBars(batEl, buckets, "day", batTotalsEl, "No battery history yet");
       } else {
         let socPts = await pull("battery_soc");
         // Both series are resampled onto a regular grid so the axis has a value
@@ -1540,6 +1632,10 @@
     const pvCur = (d.states.power_version && d.states.power_version.state) || "";
     const bleEid = d.entityIds.bluetooth_advertising;
     const ledEid = d.entityIds.led;
+    // DOD is read back from Sys.GetInfo, so the slider starts on the value the
+    // device actually uses instead of a hard-coded default.
+    const dodReported = num(d, "dod");
+    const dodCur = dodReported === null ? 60 : Math.round(dodReported);
     // Page-level edit guard: one padlock freezes every control on this tab.
     const locked = !!(panel && panel._locked);
     const dis = locked ? " disabled" : "";
@@ -1579,17 +1675,17 @@
         <div class="mk-set-col">
           <div class="mk-card mk-pad">
             <div class="mk-title" style="font-size:16px;margin-bottom:12px">Discharge Depth (DOD)</div>
-            <div class="mk-row"><span class="k">Range 30 – 88 %</span><span class="v" data-dod-val>—</span></div>
-            <input class="mk-range" type="range" min="30" max="88" step="1" value="60" data-dod data-edit-ctrl${dis}/>
+            <div class="mk-row"><span class="k">Range 30 – 88 %</span><span class="v" data-dod-val>${dodCur} %</span></div>
+            <input class="mk-range" type="range" min="30" max="88" step="1" value="${dodCur}" data-dod data-edit-ctrl${dis}/>
             <div style="margin-top:10px"><button class="mk-btn primary" data-dod-set data-edit-ctrl${dis}>Set DOD</button></div>
-            <div class="mk-sub" style="margin-top:8px">DOD is write-only until firmware reports it</div>
+            <div class="mk-sub" style="margin-top:8px">${dodReported === null ? "Waiting for the device to report its DOD (Sys.GetInfo)" : "Read from the device (Sys.GetInfo)"}</div>
           </div>
         </div>
         <div class="mk-set-col">
           <div class="mk-card mk-pad">
             <div class="mk-title" style="font-size:16px;margin-bottom:12px">Device Controls</div>
-            ${mkToggleRow("Front-panel LED", ledEid, "led")}
-            ${mkToggleRow("Bluetooth Advertising", bleEid, "ble")}
+            ${mkToggleRow("Front-panel LED", ledEid, "led", (d.states.led || {}).state === "on")}
+            ${mkToggleRow("Bluetooth Advertising", bleEid, "ble", (d.states.bluetooth_advertising || {}).state === "on")}
             <div class="mk-row"><span class="k">Power Version</span>
               <select class="mk-sel" data-pv data-edit-ctrl${dis}>
                 ${pvOpts.map((o) => `<option value="${esc(o)}" ${o === pvCur ? "selected" : ""}>${esc(o)} W</option>`).join("")}
@@ -1609,19 +1705,61 @@
         </div>
       </div>`;
   }
-  const mkToggleRow = (label, eid, kind) => {
+  // Both toggles are read back from Sys.GetInfo, so the switch position comes
+  // from the entity state instead of defaulting to off.
+  const mkToggleRow = (label, eid, kind, on) => {
     if (!eid) return `<div class="mk-row"><span class="k">${label}</span><span class="v" style="color:#999">—</span></div>`;
-    return `<div class="mk-row"><span class="k">${label}</span><div class="mk-toggle" data-tog="${kind}" data-edit-ctrl></div></div>`;
+    return `<div class="mk-row"><span class="k">${label}</span><div class="mk-toggle${on ? " on" : ""}" data-tog="${kind}" data-edit-ctrl></div></div>`;
   };
 
   // --- Tab 4: errors -------------------------------------------------------
-  function renderErrors() {
+  // Err.Get answers with one bitmask per subsystem, as hexadecimal strings
+  // ("0x800"). The integration parses them and exposes a diagnostic sensor
+  // each, so the card is fed entirely by the local API. What a bit *means*
+  // still lives in the Marstek app's error table, which the local API does not
+  // ship, so the card reports the code and flags that it is non-zero.
+  const ERROR_SYSTEMS = [
+    ["EMS", "ems_error"],
+    ["BMS", "bms_error"],
+    ["INV", "inv_error"],
+    ["MPPT", "mppt_error"],
+  ];
+  function renderErrors(d) {
+    const rows = ERROR_SYSTEMS.map(([name, key]) => {
+      const code = num(d, key);
+      const eid = d.entityIds[key];
+      return {
+        name,
+        key,
+        eid,
+        code,
+        hex: code === null ? "—" : "0x" + code.toString(16).toUpperCase(),
+        fault: code !== null && code !== 0,
+      };
+    });
+    const known = rows.filter((r) => r.code !== null);
+    const faults = rows.filter((r) => r.fault);
+    const summary = faults.length
+      ? `${faults.map((r) => r.name).join(" / ")} reporting a fault. Look the code up in the Marstek app's error table.`
+      : known.length
+        ? "No faults reported by the device."
+        : "No error reply yet — Err.Get is polled with the slow-changing components.";
+    const body = rows
+      .map((r, i) => `<tr>
+        <td>${i + 1}</td>
+        <td>${esc(r.name)}</td>
+        <td${r.eid ? ` data-entity="${esc(r.eid)}" role="button" tabindex="0" title="${esc(r.eid)}" style="cursor:pointer"` : ""}>${esc(r.hex)}</td>
+        <td><span class="mk-dot ${r.code === null ? "off" : r.fault ? "warn" : "on"}"></span>${r.code === null ? "Unavailable" : r.fault ? "Fault" : "OK"}</td>
+      </tr>`)
+      .join("");
     return `<div class="mk-card mk-pad" style="margin-top:20px">
-      <div class="mk-section-title" style="padding:0 0 16px">Real Time Fault List</div>
+      <div class="mk-section-title" style="padding:0 0 8px">Real Time Fault List</div>
+      <div class="mk-sub" style="margin-bottom:12px">${esc(summary)}</div>
       <table class="mk-table">
-        <thead><tr><th>NO</th><th>Error Code</th><th>Error Information</th><th>Solution</th><th>Time</th></tr></thead>
-        <tbody><tr><td colspan="5"><div class="mk-ph">Error list comes from the Marstek cloud API (/device/get_device_error), which the local UDP integration does not expose. View faults in the Marstek mobile app.</div></td></tr></tbody>
+        <thead><tr><th>NO</th><th>Subsystem</th><th>Error Code</th><th>Status</th></tr></thead>
+        <tbody>${body}</tbody>
       </table>
+      <div class="mk-sub" style="margin-top:10px">Codes are the raw bitmasks reported by Err.Get (0x0 = no fault).</div>
     </div>`;
   }
 
@@ -1637,6 +1775,7 @@
       this._hsOpen = false; // header stats fold: hidden by default
       this._locked = false; // settings page edit guard (padlock)
       this._dodVal = 60;
+      this._togglePendingUntil = 0; // LED/BLE toggle hold while a write lands
       this._customStart = null; // YYYY-MM-DD, set by the range picker
       this._customEnd = null;
       this._fp = null; // flatpickr instance
@@ -1698,6 +1837,28 @@
       if (wifiEl) wifiEl.textContent = val(d, "wifi_ssid") || "—";
       const rssi = this.querySelector("[data-wifi-rssi]");
       if (rssi) rssi.textContent = fmt(val(d, "wifi_rssi"), "dBm");
+      // DOD slider follows the device's reported value while the user is not
+      // adjusting it; a poll can land between two drags.
+      const dodEl = this.querySelector("[data-dod]");
+      const dod = num(d, "dod");
+      if (dodEl && dod !== null && document.activeElement !== dodEl) {
+        const v = Math.round(dod);
+        if (Number(dodEl.value) !== v) {
+          dodEl.value = v;
+          this._dodVal = v;
+          const label = this.querySelector("[data-dod-val]");
+          if (label) label.textContent = v + " %";
+        }
+      }
+      // LED / Bluetooth toggles mirror the entities (Sys.GetInfo readback).
+      // Skip while a just-clicked write is still in the debounce window, so the
+      // toggle does not flash back to the old polled value.
+      if (!(this._togglePendingUntil && performance.now() < this._togglePendingUntil)) {
+        for (const t of this.querySelectorAll("[data-tog]")) {
+          const st = d.states[t.dataset.tog === "led" ? "led" : "bluetooth_advertising"];
+          if (st) t.classList.toggle("on", st.state === "on");
+        }
+      }
       // Signal chip beside the level figure: repaint bars without rebuilding.
       const sig = this.querySelector("[data-sig]");
       if (sig) {
@@ -1952,7 +2113,9 @@
       const dodEl = this.querySelector("[data-dod]");
       const dodVal = this.querySelector("[data-dod-val]");
       if (dodEl) {
-        dodEl.value = this._dodVal;
+        // The markup already carries the device's reported value; adopt it as
+        // the pending selection so "Set DOD" writes what the row shows.
+        this._dodVal = Number(dodEl.value);
         if (dodVal) dodVal.textContent = this._dodVal + " %";
         dodEl.addEventListener("input", () => {
           if (this._locked) return;
@@ -1971,13 +2134,22 @@
       const restartBtn = this.querySelector("[data-restart]");
       if (restartBtn) restartBtn.addEventListener("click", async () => {
         if (this._locked) return;
+        const d = this._currentDevice();
+        const eid = d && d.entityIds.restart;
+        if (!eid) {
+          toast("error", "Restart is not available for this device");
+          return;
+        }
         const ok = await confirmDialog(
           "Restart Device",
-          "Are you sure you want to restart the device? Operation will be briefly interrupted."
+          "Restart the device's EMS? It goes offline for about a minute; the readings below keep their last value until it is back."
         );
         if (!ok) return;
-        // Restart is MQTT cd=16 — not available from the local UDP API. Placeholder only.
-        toast("info", "Restart requires MQTT (cd=16) — local API not supported yet");
+        // Sys.Reboot type 1 (EMS) — the local replacement for the old
+        // MQTT-only restart.
+        runWithToast("Restart device", () =>
+          this._hass.callService("button", "press", { entity_id: eid })
+        );
       });
       const pvEl = this.querySelector("[data-pv]");
       if (pvEl) pvEl.addEventListener("change", () => {
@@ -1996,6 +2168,8 @@
           if (!eid) return;
           const on = !t.classList.contains("on");
           t.classList.toggle("on", on);
+          // The write is debounced, so hold the toggle before the readback sync.
+          this._togglePendingUntil = performance.now() + 6000;
           const label = kind === "led" ? "Toggle LED" : "Toggle Bluetooth";
           runWithToast(label, () =>
             this._hass.callService("switch", on ? "turn_on" : "turn_off", { entity_id: eid }).catch((e) => {

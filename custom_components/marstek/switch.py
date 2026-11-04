@@ -1,5 +1,6 @@
 """Switch platform for Marstek devices."""
 
+import time
 from typing import override
 
 from aiomarstek import MarstekModeConfig, MarstekSetError
@@ -13,6 +14,12 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import MarstekConfigEntry
 from .entity import MarstekEntity
+
+# Sys.GetInfo (which reports the Bluetooth lock and the LED) belongs to the
+# slow extras group, so its values only show up every few polls. A fresh write
+# is therefore shown optimistically for this long, otherwise the UI would snap
+# the toggle back to the stale polled value for a couple of minutes.
+OPTIMISTIC_HOLD_SECONDS = 300.0
 
 
 async def async_setup_entry(
@@ -40,12 +47,66 @@ class MarstekSwitch(MarstekEntity, SwitchEntity):
     entity_description: SwitchEntityDescription
 
 
-class MarstekBluetoothSwitch(MarstekSwitch):
-    """Bluetooth advertising lock switch.
+class MarstekReportedSwitch(MarstekSwitch):
+    """Switch whose state the device reports in Sys.GetInfo.
 
-    The Open API reports only the Bluetooth connection state, not the
-    advertising lock flag, so this switch is write-only: its state stays
-    unknown until it is toggled.
+    ``ble_adv_en`` and ``led_state`` mirror what ``Ble.Adv`` and ``Led.Ctrl``
+    write, so these switches are no longer write-only. The readback is polled
+    with the slow extras group, so a value written from Home Assistant is held
+    optimistically until the device confirms it (or the hold expires), which
+    keeps the toggle from flipping back for one or two polls.
+    """
+
+    def __init__(
+        self,
+        coordinator: MarstekConfigEntry.runtime_data,
+        description: SwitchEntityDescription,
+    ) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, description)
+        self._optimistic_state: bool | None = None
+        self._optimistic_until = 0.0
+
+    def _reported_state(self) -> bool | None:
+        """Return the state the device last reported."""
+        raise NotImplementedError
+
+    def _hold_optimistic(self, value: bool) -> None:
+        """Show ``value`` until the device reports it or the hold expires."""
+        self._optimistic_state = value
+        self._optimistic_until = time.monotonic() + OPTIMISTIC_HOLD_SECONDS
+        self.async_write_ha_state()
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the written value while it is pending, else the device's."""
+        if (
+            self._optimistic_state is not None
+            and time.monotonic() < self._optimistic_until
+        ):
+            return self._optimistic_state
+        return self._reported_state()
+
+    @override
+    async def _handle_coordinator_update(self) -> None:
+        """Drop the optimistic value once the device agrees or the hold ends."""
+        if self._optimistic_state is not None and (
+            self._reported_state() == self._optimistic_state
+            or time.monotonic() >= self._optimistic_until
+        ):
+            self._optimistic_state = None
+        await super()._handle_coordinator_update()
+
+
+class MarstekBluetoothSwitch(MarstekReportedSwitch):
+    """Bluetooth lock switch.
+
+    ``Ble.Adv`` writes the lock and ``Sys.GetInfo``'s ``ble_adv_en`` reports
+    it back, so the switch follows the device. ``ble_adv_en`` is read as
+    "Bluetooth advertising is enabled" (1: on), the same polarity the write
+    sends; a device that answers the opposite way would show it immediately by
+    flipping the toggle back after a poll.
     """
 
     def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
@@ -60,11 +121,11 @@ class MarstekBluetoothSwitch(MarstekSwitch):
             ),
         )
 
-    @property
     @override
-    def is_on(self) -> bool | None:
-        """Bluetooth advertising state is write-only until firmware reports it."""
-        return None
+    def _reported_state(self) -> bool | None:
+        """Return the Bluetooth lock state the device reports."""
+        data = self.coordinator.data
+        return None if data is None else data.bluetooth_advertising
 
     @override
     async def async_turn_on(self) -> None:
@@ -89,16 +150,17 @@ class MarstekBluetoothSwitch(MarstekSwitch):
             raise HomeAssistantError(
                 f"Toggling Bluetooth advertising failed: {err.reason}"
             ) from err
+        self._hold_optimistic(enabled)
         self._notify_success(
             f"Bluetooth advertising {'enabled' if enabled else 'disabled'}"
         )
 
 
-class MarstekLedSwitch(MarstekSwitch):
+class MarstekLedSwitch(MarstekReportedSwitch):
     """Front-panel LED switch.
 
-    The Open API does not report the current LED state, so this switch
-    is write-only: its state stays unknown until it is toggled.
+    ``Led.Ctrl`` writes the LED and ``Sys.GetInfo``'s ``led_state`` reports the
+    same 1: on / 0: off flag back, so the switch follows the device.
     """
 
     def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
@@ -113,11 +175,11 @@ class MarstekLedSwitch(MarstekSwitch):
             ),
         )
 
-    @property
     @override
-    def is_on(self) -> bool | None:
-        """LED state is write-only until firmware reports it."""
-        return None
+    def _reported_state(self) -> bool | None:
+        """Return the front-panel LED state the device reports."""
+        data = self.coordinator.data
+        return None if data is None else data.led
 
     @override
     async def async_turn_on(self) -> None:
@@ -142,6 +204,7 @@ class MarstekLedSwitch(MarstekSwitch):
             raise HomeAssistantError(
                 f"Toggling the front-panel LED failed: {err.reason}"
             ) from err
+        self._hold_optimistic(on)
         self._notify_success(f"Front-panel LED {'enabled' if on else 'disabled'}")
 
 

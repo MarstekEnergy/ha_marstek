@@ -15,6 +15,8 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energ
 ### Monitoring (sensors)
 
 - Battery level, power, charge/discharge status and remaining/rated capacity
+- Battery state of health (SOH) and the lifetime battery/backup charge and
+  discharge counters, where the firmware reports them
 - Device operating mode (Auto / AI / Manual / Passive / UPS)
 - Grid input/output power, off-grid power, total power and CT phase powers (A/B/C)
 - Battery temperature
@@ -22,6 +24,12 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energ
 - WiFi signal strength, SSID and IP address (diagnostic, disabled by default)
 - Per-input PV power, voltage, current and state (Venus A/D)
 - Lifetime energy counters (PV, grid input/output, CT input/output, load)
+- Daily, monthly and lifetime charge/discharge energy from the device's own
+  counters (`Energy.GetData`)
+- Per-subsystem error codes (EMS / BMS / inverter / MPPT) as diagnostic
+  sensors, with the firmware's hexadecimal spelling as an attribute
+- EMS / boot / BMS / inverter firmware build numbers (`Sys.GetInfo`) as
+  diagnostic sensors
 
 ### Control
 
@@ -29,11 +37,15 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energ
   and UPS. Manual switches the device into Manual mode; configure the time
   slots in the Marstek app (HA shows a reminder). Passive (with power/countdown)
   is set via the `set_mode` service.
-- Discharge depth (DOD) number entity (30–88 %)
+- Discharge depth (DOD) number entity (30–88 %). The value is read back from
+  the device (`Sys.GetInfo`), so a change made in the Marstek app is reflected
+  in Home Assistant.
 - Max charge/discharge power version select entity, options narrowed to
-  the versions documented for your device model
-- Bluetooth advertising lock switch
-- Front-panel LED switch
+  the versions documented for your device model. The version the device is
+  running is read back from `Sys.GetInfo`.
+- Bluetooth advertising lock switch and front-panel LED switch, both read back
+  from `Sys.GetInfo`, so a change made in the Marstek app is reflected here
+- Restart-device button (restarts the EMS via `Sys.Reboot`, type 1)
 - Factory reset buttons: one clears accumulated data, one preserves it
 
 All communication stays on your local network; no cloud account is required.

@@ -250,7 +250,31 @@ def test_new_entity_keys_have_translations() -> None:
     """Every new entity key has a name in strings.json and en.json."""
     keys = {
         "binary_sensor": ["ct_state"],
-        "sensor": ["wifi_gateway", "wifi_netmask", "wifi_dns"],
+        "button": ["restart"],
+        "sensor": [
+            "wifi_gateway",
+            "wifi_netmask",
+            "wifi_dns",
+            "battery_soh",
+            "battery_total_input_energy",
+            "battery_total_output_energy",
+            "backup_input_energy",
+            "backup_output_energy",
+            "energy_day_charge",
+            "energy_day_discharge",
+            "energy_month_charge",
+            "energy_month_discharge",
+            "energy_total_charge",
+            "energy_total_discharge",
+            "ems_error",
+            "bms_error",
+            "inv_error",
+            "mppt_error",
+            "ems_version",
+            "boot_version",
+            "bms_version",
+            "inverter_version",
+        ],
     }
     for filename in ("strings.json", "translations/en.json"):
         data = json.loads((COMPONENT_DIR / filename).read_text(encoding="utf-8"))
@@ -332,7 +356,7 @@ def test_control_entities_pass_distinct_write_keys() -> None:
         "number": {"dod", "passive"},
         "switch": {"bluetooth", "led", "device_mode"},
         "select": {"device_mode", "power_version"},
-        "button": {"factory_reset", "factory_reset_keep_data"},
+        "button": {"restart", "factory_reset", "factory_reset_keep_data"},
     }
     for module, keys in expected.items():
         assert _async_write_keys(module) == keys, (
@@ -417,15 +441,22 @@ def test_unload_entry_shuts_down_write_queue() -> None:
     assert "await self._write_queue.async_shutdown()" in coordinator
 
 
-def test_write_only_entities_stay_unknown() -> None:
-    """Write-only controls report unknown (no optimistic state) until firmware reports it."""
+def test_controls_read_back_from_sys_info() -> None:
+    """The LED and Bluetooth switches report the device's value, not an assumption."""
     switch_source = (COMPONENT_DIR / "switch.py").read_text(encoding="utf-8")
-    # No optimistic _attr_is_on on the write-only switches.
+    # Readback comes from the Sys.GetInfo fields.
+    assert "data.led" in switch_source
+    assert "data.bluetooth_advertising" in switch_source
+    # The device's value always wins; only a freshly written value is held.
+    assert "_optimistic_state" in switch_source
     assert "_attr_is_on = " not in switch_source
 
     number_source = (COMPONENT_DIR / "number.py").read_text(encoding="utf-8")
     # No optimistic _attr_native_value on DOD/passive numbers.
     assert "_attr_native_value = " not in number_source
+
+    select_source = (COMPONENT_DIR / "select.py").read_text(encoding="utf-8")
+    assert "data.power_version" in select_source
 
 
 def test_mode_select_updates_optimistically() -> None:
@@ -557,6 +588,89 @@ def test_icons_json_only_references_known_entity_keys() -> None:
         known = set(strings["entity"][platform])
         unknown = set(entries) - known
         assert not unknown, f"icons.json {platform} has unknown keys: {unknown}"
+
+
+def test_write_forces_extras_readback() -> None:
+    """A successful write forces the slow extras group on the next poll.
+
+    Sys.GetInfo (DOD, the Bluetooth lock, the LED, the power version) lives in
+    the extras group, which otherwise only refreshes every EXTRAS_INTERVAL
+    polls. Forcing it after a write makes the readback converge in one poll
+    instead of up to a couple of minutes.
+    """
+    coordinator = (COMPONENT_DIR / "coordinator.py").read_text(encoding="utf-8")
+    assert "self._force_extras = False" in coordinator
+    assert "force_extras=force_extras" in coordinator
+    # The write queue's refresh callback is the force-aware method.
+    assert "self._async_refresh_after_write" in coordinator
+    assert "_async_refresh_after_write" in coordinator
+    # The flag is consumed inside _async_update_data (async_request_refresh is
+    # debounced, so setting it around the call would race the deferred run).
+    assert "force_extras = self._force_extras" in coordinator
+    # A poll that never delivered data must not swallow the pending readback.
+    assert coordinator.count("self._force_extras = force_extras or self._force_extras") == 2
+
+
+def test_restart_button_uses_sys_reboot() -> None:
+    """The restart control is a real Sys.Reboot button, not the MQTT placeholder."""
+    button_source = (COMPONENT_DIR / "button.py").read_text(encoding="utf-8")
+    assert "MarstekRestartButton" in button_source
+    assert 'key="restart"' in button_source
+    assert "udp_client.reboot(" in button_source
+    assert "ButtonDeviceClass.RESTART" in button_source
+    # A failed send (socket/bind error) is not a restart in progress.
+    assert "except OSError" in button_source
+
+    panel = (COMPONENT_DIR / "frontend" / "panel.js").read_text(encoding="utf-8")
+    # The panel presses the entity; the old "needs MQTT cd=16" toast is gone.
+    assert 'callService("button", "press"' in panel
+    assert "Restart requires MQTT" not in panel
+
+
+def test_dod_entity_reads_back_from_sys_info() -> None:
+    """The DOD number shows the device's value instead of being write-only."""
+    number_source = (COMPONENT_DIR / "number.py").read_text(encoding="utf-8")
+    assert "data.dod" in number_source
+    assert "Discharge depth is write-only" not in number_source
+
+    panel = (COMPONENT_DIR / "frontend" / "panel.js").read_text(encoding="utf-8")
+    # The slider starts from (and follows) the reported value.
+    assert 'num(d, "dod")' in panel
+    assert "data-dod" in panel
+
+
+def test_error_sensors_expose_hex_codes() -> None:
+    """Err.Get bitmasks become diagnostic sensors with a hex attribute."""
+    source = (COMPONENT_DIR / "sensor.py").read_text(encoding="utf-8")
+    for key in ("ems_error", "bms_error", "inv_error", "mppt_error"):
+        assert f'key="{key}"' in source
+        assert f'translation_key="{key}"' in source
+    assert "is_error_code=True" in source
+    assert "hex_code" in source
+    assert "EntityCategory.DIAGNOSTIC" in source
+
+    panel = (COMPONENT_DIR / "frontend" / "panel.js").read_text(encoding="utf-8")
+    # The fault card is fed by the sensors; the cloud-API placeholder is gone.
+    assert "get_device_error" not in panel
+
+
+def test_energy_counters_replace_recorder_month_math() -> None:
+    """Energy.GetData counters back the month chart and the day/month rows."""
+    source = (COMPONENT_DIR / "sensor.py").read_text(encoding="utf-8")
+    for key in (
+        "energy_day_charge",
+        "energy_day_discharge",
+        "energy_month_charge",
+        "energy_month_discharge",
+        "energy_total_charge",
+        "energy_total_discharge",
+    ):
+        assert f'key="{key}"' in source, f"sensor.py must expose {key}"
+
+    panel = (COMPONENT_DIR / "frontend" / "panel.js").read_text(encoding="utf-8")
+    assert 'num(d, "energy_day_charge")' in panel
+    assert 'num(d, "energy_month_charge")' in panel
+    assert 'num(d, "energy_total_charge")' in panel
 
 
 # --- helpers ----------------------------------------------------------------

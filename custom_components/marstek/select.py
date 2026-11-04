@@ -129,6 +129,10 @@ class MarstekPowerVersionSelect(MarstekSelect):
     narrowed to the versions documented for this device's type. Unknown
     models fall back to the full set and let the device reject a value
     it does not support.
+
+    ``Set.Ver`` takes the watt figure, while ``Sys.GetInfo`` reports the
+    setting as a code, so the reported code is mapped back to watts (see
+    ``POWER_VERSION_CODES``) to show the version the device is running.
     """
 
     def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
@@ -150,8 +154,15 @@ class MarstekPowerVersionSelect(MarstekSelect):
     @property
     @override
     def current_option(self) -> str | None:
-        """Power version is write-only until firmware reports it."""
-        return None
+        """Return the power version the device reports via Sys.GetInfo.
+
+        A code the Open API does not document (or a figure outside this
+        model's documented set) is reported as-is: the device is the source
+        of truth, even if the option list would not offer that value.
+        """
+        data = self.coordinator.data
+        watts = None if data is None else data.power_version
+        return None if watts is None else str(int(watts))
 
     @override
     async def async_select_option(self, option: str) -> None:

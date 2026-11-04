@@ -73,11 +73,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         # confirmed value instead of an intermediate one (see passive_state).
         self.passive_power = PassiveField()
         self.passive_cd_time = PassiveField()
+        # Set by async_write's post-write refresh so the next poll forces the
+        # slow extras group (Sys.GetInfo / Energy.GetData / Err.Get) instead of
+        # waiting for the EXTRAS_INTERVAL boundary. Consumed in
+        # _async_update_data.
+        self._force_extras = False
         # Writes go through the shared debounce queue, which coalesces
         # same-control repeats and keeps distinct controls queued; see
         # write_queue.DebouncedWriteQueue for the ordering rules.
         self._write_queue = DebouncedWriteQueue(
-            WRITE_DEBOUNCE_DELAY, self.async_request_refresh
+            WRITE_DEBOUNCE_DELAY, self._async_refresh_after_write
         )
         super().__init__(
             hass,
@@ -165,6 +170,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         """
         _LOGGER.debug("Start polling device: %s", self.device_ip)
         previous = self.data
+        # A successful write forces the extras group on the next poll so the
+        # readback (Sys.GetInfo reports DOD, the Bluetooth lock, the LED and
+        # the power version) converges immediately. The flag is consumed here
+        # rather than around async_request_refresh, because that call is
+        # debounced and may run up to the cooldown window later.
+        force_extras = self._force_extras
+        self._force_extras = False
 
         try:
             data = await self.udp_client.get_device_status(
@@ -172,8 +184,14 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 port=self.device_port,
                 previous_data=previous,
                 include_pv=self.device_info.device_type in PV_DEVICE_TYPES,
+                force_extras=force_extras,
             )
         except MarstekNoResponse:
+            # Keep a pending readback: the confirmation of a write lives in the
+            # extras group (Sys.GetInfo / Energy.GetData / Err.Get), so dropping
+            # the flag on a silent poll would push it out to the next regular
+            # extras boundary. ``or`` keeps a write that arrived during the await.
+            self._force_extras = force_extras or self._force_extras
             self._silent_polls += 1
             if previous is None or self._silent_polls >= MAX_SILENT_POLLS:
                 # No data yet, or the device has been silent long enough that
@@ -196,6 +214,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             )
             return previous
         except (TimeoutError, OSError, TypeError) as err:
+            # The pending readback was never applied; try again next poll.
+            self._force_extras = force_extras or self._force_extras
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="device_update_failed",
@@ -218,7 +238,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         replace each other: they queue and execute one per debounce window,
         so a mode change, LED toggle or factory reset is never silently
         dropped behind another control's write. A single refresh follows
-        each executed write.
+        each executed write and forces the slow extras group, so the readback
+        for the just-changed setting (DOD, the Bluetooth lock, the LED, the
+        power version -- all reported by Sys.GetInfo) converges immediately
+        instead of on the next EXTRAS_INTERVAL boundary.
 
         ``key`` identifies the *device state* being changed, not the
         entity: the mode select and the UPS switch share one
@@ -228,6 +251,17 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         coalesces away their power/cooldown parameters.
         """
         await self._write_queue.async_write(key, action)
+
+    async def _async_refresh_after_write(self) -> None:
+        """Refresh after a write, forcing the slow extras group.
+
+        The write callback stored on the debounce queue. ``async_request_refresh``
+        is debounced (cooldown window), so the flag is consumed inside
+        :meth:`_async_update_data` on whichever refresh actually runs -- the
+        immediate one or the deferred one -- rather than around this call.
+        """
+        self._force_extras = True
+        await self.async_request_refresh()
 
     async def async_shutdown(self) -> None:
         """Stop the debounced write queue before the entry unloads.

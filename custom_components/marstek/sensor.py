@@ -20,6 +20,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
@@ -41,6 +42,9 @@ class MarstekSensorEntityDescription(SensorEntityDescription):
     """Describe a Marstek sensor entity."""
 
     requires_pv: bool = False
+    # A subsystem error bitmask: state stays numeric, hex_code is added as an
+    # attribute so the value reads the way the firmware reports it.
+    is_error_code: bool = False
 
 
 def _pv_input_sensor_descriptions() -> tuple[MarstekSensorEntityDescription, ...]:
@@ -123,10 +127,154 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
     ),
     MarstekSensorEntityDescription(
+        key="battery_soh",
+        translation_key="battery_soh",
+        name="Battery state of health",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-heart-variant",
+    ),
+    MarstekSensorEntityDescription(
+        key="battery_total_input_energy",
+        translation_key="battery_total_input_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="battery_total_output_energy",
+        translation_key="battery_total_output_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="backup_input_energy",
+        translation_key="backup_input_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="backup_output_energy",
+        translation_key="backup_output_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
         key="battery_capacity",
         translation_key="battery_capacity",
         device_class=SensorDeviceClass.ENERGY_STORAGE,
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+    ),
+    # Energy.GetData: the device's own charge/discharge counters. These replace
+    # integrating battery_power over recorder history for the day/month totals.
+    MarstekSensorEntityDescription(
+        key="energy_day_charge",
+        translation_key="energy_day_charge",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="energy_day_discharge",
+        translation_key="energy_day_discharge",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="energy_month_charge",
+        translation_key="energy_month_charge",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="energy_month_discharge",
+        translation_key="energy_month_discharge",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="energy_total_charge",
+        translation_key="energy_total_charge",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
+        key="energy_total_discharge",
+        translation_key="energy_total_discharge",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    # Err.Get: one bitmask per subsystem. The state is the numeric code (easy
+    # to compare in automations); the hex spelling the firmware uses is
+    # exposed as the hex_code attribute.
+    MarstekSensorEntityDescription(
+        key="ems_error",
+        translation_key="ems_error",
+        name="EMS error code",
+        icon="mdi:alert-circle-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_error_code=True,
+    ),
+    MarstekSensorEntityDescription(
+        key="bms_error",
+        translation_key="bms_error",
+        name="BMS error code",
+        icon="mdi:alert-circle-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_error_code=True,
+    ),
+    MarstekSensorEntityDescription(
+        key="inv_error",
+        translation_key="inv_error",
+        name="Inverter error code",
+        icon="mdi:alert-circle-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_error_code=True,
+    ),
+    MarstekSensorEntityDescription(
+        key="mppt_error",
+        translation_key="mppt_error",
+        name="MPPT error code",
+        icon="mdi:alert-circle-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_error_code=True,
+    ),
+    # Sys.GetInfo: one firmware build number per subsystem.
+    MarstekSensorEntityDescription(
+        key="ems_version",
+        translation_key="ems_version",
+        name="EMS firmware",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    MarstekSensorEntityDescription(
+        key="boot_version",
+        translation_key="boot_version",
+        name="Boot firmware",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    MarstekSensorEntityDescription(
+        key="bms_version",
+        translation_key="bms_version",
+        name="BMS firmware",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    MarstekSensorEntityDescription(
+        key="inverter_version",
+        translation_key="inverter_version",
+        name="Inverter firmware",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     MarstekSensorEntityDescription(
         key="device_mode",
@@ -286,11 +434,14 @@ async def async_setup_entry(
     _LOGGER.debug("Setting up Marstek sensors: %s", device_ip)
 
     has_pv = coordinator.device_info.device_type in PV_DEVICE_TYPES
-    sensors: list[SensorEntity] = [
-        MarstekSensor(coordinator, description)
-        for description in SENSOR_DESCRIPTIONS
-        if has_pv or not description.requires_pv
-    ]
+    sensors: list[SensorEntity] = []
+    for description in SENSOR_DESCRIPTIONS:
+        if description.requires_pv and not has_pv:
+            continue
+        sensor_class = (
+            MarstekErrorSensor if description.is_error_code else MarstekSensor
+        )
+        sensors.append(sensor_class(coordinator, description))
 
     _LOGGER.debug("Device %s sensors set up, total %d", device_ip, len(sensors))
     async_add_entities(sensors)
@@ -306,3 +457,20 @@ class MarstekSensor(MarstekEntity, SensorEntity):
     def native_value(self) -> StateType | None:
         """Return the state of the sensor."""
         return self.coordinator.data.get_value(self.entity_description.key)
+
+
+class MarstekErrorSensor(MarstekSensor):
+    """Subsystem error bitmask from Err.Get.
+
+    The state is the numeric code so automations can compare it directly; the
+    hexadecimal spelling the firmware actually sends is added as an attribute.
+    """
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Return the error code in the firmware's hexadecimal notation."""
+        value = self.native_value
+        if not isinstance(value, int):
+            return None
+        return {"hex_code": f"0x{value:X}"}

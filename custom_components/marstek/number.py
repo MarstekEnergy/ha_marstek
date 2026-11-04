@@ -53,8 +53,11 @@ class MarstekNumber(MarstekEntity, NumberEntity):
 class MarstekDODNumber(MarstekNumber):
     """Discharge depth (DOD) configuration entity.
 
-    The Open API does not report the current DOD, so this entity is
-    write-only: its state stays unknown until a new value is written.
+    ``DOD.SET`` only writes the value, but ``Sys.GetInfo`` reports the DOD the
+    device is actually using, so the entity reflects the device instead of the
+    last value written from Home Assistant. The value is polled with the other
+    slow-changing components, so a change made in the Marstek app shows up
+    within a few polls.
     """
 
     def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
@@ -76,8 +79,9 @@ class MarstekDODNumber(MarstekNumber):
     @property
     @override
     def native_value(self) -> float | None:
-        """Discharge depth is write-only until firmware reports it."""
-        return None
+        """Return the discharge depth the device reports via Sys.GetInfo."""
+        data = self.coordinator.data
+        return None if data is None else data.dod
 
     @override
     async def async_set_native_value(self, value: float) -> None:
