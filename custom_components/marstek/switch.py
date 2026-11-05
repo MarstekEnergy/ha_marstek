@@ -100,13 +100,14 @@ class MarstekReportedSwitch(MarstekSwitch):
 
 
 class MarstekBluetoothSwitch(MarstekReportedSwitch):
-    """Bluetooth lock switch.
+    """Bluetooth advertising switch.
 
-    ``Ble.Adv`` writes the lock and ``Sys.GetInfo``'s ``ble_adv_en`` reports
-    it back, so the switch follows the device. ``ble_adv_en`` is read as
-    "Bluetooth advertising is enabled" (1: on), the same polarity the write
-    sends; a device that answers the opposite way would show it immediately by
-    flipping the toggle back after a poll.
+    ``Ble.Adv`` takes the *lock* flag: ``enable=0`` enables the lock (the
+    device stops advertising), ``enable=1`` disables it (advertising on), which
+    is why ``async_turn_on`` sends ``True``. ``Sys.GetInfo``'s ``ble_adv_en``
+    reports that same lock flag back -- confirmed on hardware, where a device
+    whose app shows the lock off answers ``0`` -- so advertising is its
+    opposite and the readback is inverted here.
     """
 
     def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
@@ -123,9 +124,15 @@ class MarstekBluetoothSwitch(MarstekReportedSwitch):
 
     @override
     def _reported_state(self) -> bool | None:
-        """Return the Bluetooth lock state the device reports."""
+        """Return whether Bluetooth advertising is on.
+
+        ``data.bluetooth_advertising`` carries ``ble_adv_en`` verbatim, i.e.
+        the Bluetooth *lock* flag, so advertising is its negation.
+        """
         data = self.coordinator.data
-        return None if data is None else data.bluetooth_advertising
+        if data is None or data.bluetooth_advertising is None:
+            return None
+        return not data.bluetooth_advertising
 
     @override
     async def async_turn_on(self) -> None:

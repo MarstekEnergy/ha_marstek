@@ -18,6 +18,7 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.service import async_extract_entity_ids
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -342,7 +343,10 @@ async def _async_resolve_coordinators(
     Coordinators are deduplicated by device IP so a multi-target call acts on
     each device once.
     """
-    entity_ids = await cv.async_extract_entity_ids(call)
+    # Lives in homeassistant.helpers.service; the config_validation re-export
+    # was removed in HA 2025.x, which made every service call raise
+    # AttributeError before it ever reached the device.
+    entity_ids = await async_extract_entity_ids(call)
     if not entity_ids:
         raise ServiceValidationError(
             "No Marstek entities were targeted by this service call; "

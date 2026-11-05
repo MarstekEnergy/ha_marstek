@@ -106,7 +106,10 @@
     { key: "information", label: "Device Information", icon: TAB_ICON_INFO },
     { key: "settings", label: "Device Settings", icon: TAB_ICON_SETTINGS },
   ];
-  const MODE_OPTIONS = ["auto", "ai", "manual", "ups"];
+  // UPS is deliberately not a segment button: it is the backup behaviour of a
+  // manual setup, so it lives in Device Controls as a toggle that only shows
+  // up in Manual mode (see renderSettings).
+  const MODE_OPTIONS = ["auto", "ai", "manual"];
   // "custom" is not a button here — the date-range picker on the right is the
   // entry point for custom windows; it sets this._statTab = "custom" itself.
   // "year" was dropped: raw history is purged after ~10 days, so a 12-month
@@ -366,6 +369,154 @@
       box.querySelector('[data-cd="ok"]').addEventListener("click", () => done(true));
       box.querySelector('[data-cd="cancel"]').addEventListener("click", () => done(false));
       overlay.addEventListener("click", (e) => { if (e.target === overlay) done(false); });
+    });
+  }
+
+  // --- Manual-mode schedule sheet ------------------------------------------
+  // Mirrors the Marstek app's Manual "Edit" page: one time period (start/end),
+  // the power mode + wattage, and the weekday chips. It resolves to the slot
+  // the caller sends as ES.SetMode manual_cfg, or null when dismissed.
+  // week_set is little-endian per the Open API: bit 0 = Monday, bit 6 = Sunday.
+  const WEEK_BIT = { sun: 64, mon: 1, tue: 2, wed: 4, thu: 8, fri: 16, sat: 32 };
+  // Display order follows the app (Sun first), the bitmask does not.
+  const WEEK_CHIPS = [["sun", "Sun"], ["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"]];
+  // manual_set: 0 disable, 1 charge, 2 discharge, 3 auto.
+  const MANUAL_SET_OPTIONS = [[2, "Discharge"], [1, "Charge"], [3, "Auto"]];
+  const SHEET_CSS = `
+    .mk-sheet { width:400px; max-width:100%; max-height:min(86vh,720px); overflow:auto;
+      background:#fff; border-radius:20px; box-shadow:0 24px 60px rgba(0,0,0,.3);
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
+      color:#1D1D1F; font-size:14px; -webkit-font-smoothing:antialiased; }
+    .mk-sheet .sh-head { position:sticky; top:0; z-index:2; display:flex; align-items:center;
+      justify-content:space-between; gap:12px; padding:14px 16px;
+      background:rgba(255,255,255,0.94); backdrop-filter:saturate(180%) blur(14px);
+      border-bottom:1px solid #EFEFF1; }
+    .mk-sheet .sh-title { font-size:15px; font-weight:600; letter-spacing:-0.01em; }
+    .mk-sheet .sh-btn { border:none; background:none; font:inherit; font-size:15px; color:#6E6E73;
+      cursor:pointer; padding:6px 4px; border-radius:8px; }
+    .mk-sheet .sh-btn:hover { color:#1D1D1F; }
+    .mk-sheet .sh-ok { color:#1D1D1F; font-weight:600; }
+    .mk-sheet .sh-body { padding:8px 20px 22px; display:flex; flex-direction:column; }
+    .mk-sheet .sh-label { font-size:12px; color:#8E8E93; margin:16px 2px 8px; }
+    .mk-sheet .sh-group { background:#F7F7F9; border:1px solid rgba(0,0,0,0.04);
+      border-radius:14px; padding:14px 16px; }
+    .mk-sheet .sh-times { display:flex; align-items:center; justify-content:center; gap:14px; padding:16px; }
+    .mk-sheet .sh-time { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; }
+    .mk-sheet .sh-time span { font-size:12px; color:#8E8E93; }
+    .mk-sheet .sh-time input { width:100%; border:none; background:none; text-align:center;
+      font:inherit; font-size:26px; font-weight:600; letter-spacing:-0.01em; color:#1D1D1F;
+      font-variant-numeric:tabular-nums; padding:0; }
+    .mk-sheet .sh-time input::-webkit-calendar-picker-indicator { opacity:.35; cursor:pointer; }
+    .mk-sheet .sh-dash { color:#C7C7CC; font-size:18px; margin-top:10px; }
+    .mk-sheet .sh-line { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; }
+    .mk-sheet .sh-line + .sh-line { border-top:1px solid rgba(0,0,0,0.06); }
+    .mk-sheet .sh-sel { border:none; background:none; font:inherit; font-size:14px; color:#1D1D1F;
+      cursor:pointer; text-align:right; max-width:60%; }
+    .mk-sheet .sh-sel:focus { outline:none; }
+    .mk-sheet .sh-numwrap { display:inline-flex; align-items:baseline; gap:4px; }
+    .mk-sheet .sh-num { width:92px; border:none; background:none; text-align:right; padding:0;
+      font:inherit; font-size:16px; font-weight:600; color:#1D1D1F; font-variant-numeric:tabular-nums; }
+    .mk-sheet .sh-unit { color:#8E8E93; font-size:13px; }
+    .mk-sheet .sh-days { display:flex; gap:6px; }
+    .mk-sheet .sh-day { flex:1; min-width:0; border:none; border-radius:10px; background:#E9E9EB;
+      color:#1D1D1F; font:inherit; font-size:12px; font-weight:500; padding:9px 0; cursor:pointer;
+      transition:background .15s, color .15s; }
+    .mk-sheet .sh-day.on { background:#1D1D1F; color:#fff; }
+    .mk-sheet .sh-err { min-height:16px; margin-top:10px; font-size:12px; color:#FF3B30; }`;
+
+  function manualModeSheet(initial) {
+    const init = Object.assign({
+      start: "10:00", end: "12:00", power: 100, manualSet: 2,
+      days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], powerMax: 2500,
+    }, initial || {});
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.style.cssText = "position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:20px;";
+      const box = document.createElement("div");
+      box.className = "mk-sheet";
+      box.innerHTML = `<style>${SHEET_CSS}</style>
+        <div class="sh-head">
+          <button type="button" class="sh-btn" data-sh="cancel">Cancel</button>
+          <div class="sh-title">Manual Mode</div>
+          <button type="button" class="sh-btn sh-ok" data-sh="ok">OK</button>
+        </div>
+        <div class="sh-body">
+          <div class="sh-label">Time period</div>
+          <div class="sh-group sh-times">
+            <label class="sh-time"><span>Start</span><input type="time" step="60" data-sh="start" value="${esc(init.start)}"></label>
+            <span class="sh-dash">—</span>
+            <label class="sh-time"><span>End</span><input type="time" step="60" data-sh="end" value="${esc(init.end)}"></label>
+          </div>
+          <div class="sh-label">Power</div>
+          <div class="sh-group">
+            <label class="sh-line"><span>Direction</span>
+              <select class="sh-sel" data-sh="mset">${MANUAL_SET_OPTIONS.map(([v, l]) => `<option value="${v}"${v === init.manualSet ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+            <label class="sh-line"><span>Power</span>
+              <span class="sh-numwrap"><input class="sh-num" type="number" inputmode="numeric" min="0" max="${init.powerMax}" step="10" data-sh="power" value="${esc(init.power)}"><span class="sh-unit">W</span></span></label>
+          </div>
+          <div class="sh-label">Days</div>
+          <div class="sh-group sh-days">
+            ${WEEK_CHIPS.map(([k, label]) => `<button type="button" class="sh-day${init.days.includes(k) ? " on" : ""}" data-day="${k}">${label}</button>`).join("")}
+          </div>
+          <div class="sh-err" data-sh="err"></div>
+        </div>`;
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      const q = (name) => box.querySelector(`[data-sh="${name}"]`);
+      const err = q("err");
+      const onKey = (e) => { if (e.key === "Escape") close(null); };
+      const close = (value) => {
+        document.removeEventListener("keydown", onKey);
+        overlay.remove();
+        resolve(value);
+      };
+      document.addEventListener("keydown", onKey);
+      box.querySelectorAll("[data-day]").forEach((b) =>
+        b.addEventListener("click", () => b.classList.toggle("on"))
+      );
+      q("cancel").addEventListener("click", () => close(null));
+      // A stale message should not survive the edit that fixes it.
+      box.querySelectorAll("[data-sh='start'], [data-sh='end'], [data-sh='power'], [data-day]").forEach((el) => {
+        el.addEventListener("input", () => { err.textContent = ""; });
+        el.addEventListener("click", () => { err.textContent = ""; });
+      });
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+      q("ok").addEventListener("click", () => {
+        // The device wants [hh:mm]; some browsers hand back hh:mm:ss.
+        const start = (q("start").value || "").slice(0, 5);
+        const end = (q("end").value || "").slice(0, 5);
+        const power = Math.round(Number(q("power").value));
+        const days = Array.from(box.querySelectorAll("[data-day].on")).map((b) => b.dataset.day);
+        const hhmm = /^\d{2}:\d{2}$/;
+        if (!hhmm.test(start) || !hhmm.test(end)) {
+          err.textContent = "Set a valid start and end time.";
+          return;
+        }
+        // "HH:MM" strings sort chronologically, so a plain compare is enough.
+        // A slot must run forward (start < end); a window that wraps past
+        // midnight is not accepted by the device.
+        if (start >= end) {
+          err.textContent = "Start time must be earlier than the end time.";
+          return;
+        }
+        if (!days.length) {
+          err.textContent = "Pick at least one day.";
+          return;
+        }
+        if (!Number.isFinite(power) || power <= 0 || power > init.powerMax) {
+          err.textContent = `Power must be between 1 and ${init.powerMax} W.`;
+          return;
+        }
+        close({
+          start,
+          end,
+          power,
+          days,
+          // Fold the chips into the device's week_set bitmask.
+          weekSet: days.reduce((acc, k) => acc + WEEK_BIT[k], 0),
+          manualSet: Number(q("mset").value),
+        });
+      });
     });
   }
   // YYYY-MM-DD in local time, for <input type="date"> values.
@@ -725,6 +876,40 @@
     .mk-wrap { max-width:1440px; margin:0 auto; padding:28px 28px 72px; }
     .mk-card { background:var(--surface); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow-sm); }
     .mk-pad { padding:24px; }
+    /* Power Flow and Operating Mode share one row (half width each) above the
+       full-width Battery card; stacked again on narrow viewports. */
+    .mk-chart-row { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:20px; margin-top:20px; align-items:stretch; }
+    .mk-chart-row > .mk-card { min-width:0; display:flex; flex-direction:column; }
+    @media (max-width:900px) { .mk-chart-row { grid-template-columns:1fr; } }
+    /* Inline colour-key under a chart title: small dots, quiet type, no chrome. */
+    .mk-legend-inline { display:flex; flex-wrap:wrap; gap:5px 18px; margin:6px 0 2px; font-size:12px; color:var(--sub); }
+    .mk-legend-inline span { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .mk-legend-inline i { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+    .mk-legend-inline em { font-style:normal; color:var(--faint); font-variant-numeric:tabular-nums; }
+    /* The mode card's key sits under the track and pins to the card bottom, so
+       both half-width cards line up when the grid stretches them. */
+    .mk-chart-row > .mk-card > .mk-legend-inline:last-child { margin-top:auto; padding-top:8px; }
+    /* Activity feed: coloured icon tile + two-line label on the left, current
+       state as a tinted pill on the right. Fixed height keeps the card level
+       with the Power Flow chart next to it. */
+    .mk-act { height:230px; margin-top:8px; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+    .mk-act::-webkit-scrollbar { width:6px; }
+    .mk-act::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.12); border-radius:3px; }
+    .mk-act-list { position:relative; }
+    .mk-act-row { display:flex; align-items:center; gap:11px; padding:8px 6px;
+      border-bottom:1px solid #F2F2F4; border-radius:10px; transition:background .15s; }
+    .mk-act-row:last-child { border-bottom:none; }
+    .mk-act-row[data-entity] { cursor:pointer; }
+    .mk-act-row[data-entity]:hover { background:rgba(29,29,31,0.035); }
+    .mk-act-ico { flex-shrink:0; width:26px; height:26px; border-radius:9px; color:#fff;
+      display:inline-flex; align-items:center; justify-content:center; }
+    .mk-act-ico svg { width:16px; height:16px; }
+    .mk-act-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+    .mk-act-name { font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mk-act-time { font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
+    .mk-act-pill { flex-shrink:0; font-size:11px; font-weight:600; padding:3px 9px;
+      border-radius:999px; white-space:nowrap; }
+    .mk-act-chev { color:#C7C7CC; font-size:15px; line-height:1; margin-left:-5px; }
     .mk-title { font-size:18px; font-weight:600; letter-spacing:-0.01em; }
     .mk-section-title { font-size:17px; font-weight:600; padding:22px 24px 0; letter-spacing:-0.01em; }
     .mk-sub { color:var(--sub); font-size:12px; }
@@ -936,9 +1121,9 @@
     .mk-wrap[data-locked] .mk-btn.primary:hover { background:var(--accent); }
     .mk-wrap[data-locked] .mk-icon-btn:hover { background:var(--surface); color:var(--sub); border-color:var(--border2); }
     .mk-wrap[data-locked] .mk-toggle:hover { background:#C7C7CC; }
-    .mk-wrap[data-locked] .mk-toggle.on:hover { background:var(--green); }
+    .mk-wrap[data-locked] .mk-toggle.on:hover { background:var(--accent); }
     .mk-toggle { width:42px; height:24px; border-radius:12px; background:#C7C7CC; position:relative; cursor:pointer; transition:background .2s; border:none; }
-    .mk-toggle.on { background:var(--green); }
+    .mk-toggle.on { background:var(--accent); }
     .mk-toggle::after { content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#fff; transition:left .2s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
     .mk-toggle.on::after { left:20px; }
     .mk-range { width:100%; accent-color:var(--accent); }
@@ -1013,6 +1198,19 @@
     .mk-pill.bad { color:var(--red); border:1px solid rgba(255,59,48,.35); background:rgba(255,59,48,.10); }
     .mk-pill.warn::before, .mk-pill.bad::before { content:""; width:6px; height:6px; border-radius:50%; margin-right:6px; flex-shrink:0; }
     .mk-pill.warn::before { background:var(--yellow); } .mk-pill.bad::before { background:var(--red); }
+    /* Fault tiles: one mini-card per subsystem instead of a table. A faulting
+       tile tints the whole card red so the eye lands on it without a header. */
+    .mk-err-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+    .mk-err-tile { border:1px solid var(--border2); border-radius:14px; padding:14px 16px; transition:border-color .25s, background .25s, box-shadow .25s; }
+    .mk-err-tile[data-entity] { cursor:pointer; }
+    .mk-err-tile[data-entity]:hover { border-color:var(--accent); }
+    .mk-err-tile[data-fault="1"] { border-color:rgba(255,59,48,.45); background:rgba(255,59,48,.05); box-shadow:0 1px 10px rgba(255,59,48,.12); }
+    .mk-err-tile .t { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .mk-err-tile .name { font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--sub); }
+    .mk-err-tile .code { font-size:20px; font-weight:600; margin-top:10px; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; }
+    .mk-err-tile .code.na { color:var(--faint); font-weight:500; }
+    .mk-err-tile .eid { font-size:11px; color:var(--faint); margin-top:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mk-err-tile .mk-pill { margin-top:0; }
     /* Overline — small uppercase section kicker. */
     .mk-overline { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
     /* Slim scrollbar for internal scroll areas. */
@@ -1138,11 +1336,9 @@
     energy.push({ l: "Load Energy", v: fmt(val(d, "total_load_energy"), "Wh"), e: "total_load_energy" });
     energy.push({ l: "CT Input", v: fmt(val(d, "ct_input_energy"), "Wh"), e: "ct_input_energy" });
     energy.push({ l: "CT Output", v: fmt(val(d, "ct_output_energy"), "Wh"), e: "ct_output_energy" });
-    // Device card: non-energy state (temperature, capacity, network, CT/BT,
-    // phase). Energy values live in the Energy card, not duplicated here.
+    // Device card: non-energy state (capacity, network, CT/BT, phase).
+    // Energy values live in the Energy card, not duplicated here.
     const basic = [
-      ["Temperature", fmt(val(d, "battery_temperature"), "°C"), "battery_temperature"],
-      ["Battery SOH", fmt(val(d, "battery_soh"), "%"), "battery_soh"],
       ["Remaining Capacity", fmt(val(d, "battery_remaining_capacity"), "Wh"), "battery_remaining_capacity"],
       ["Off-grid Power", fmt(val(d, "offgrid_power"), "W"), "offgrid_power"],
       ["Phase A", fmt(val(d, "phase_a_power"), "W"), "phase_a_power"],
@@ -1189,12 +1385,48 @@
       </div>`;
     return `
       ${renderHeader(d, stats)}
-      <div style="margin-top:20px">${renderStatistics(d, statTab, self)}</div>
-      ${renderErrors(d)}`;
+      ${renderErrors(d)}
+      <div class="mk-chart-row">
+        ${renderPowerFlow()}
+        ${renderActivity()}
+      </div>
+      <div style="margin-top:20px">${renderStatistics(statTab)}</div>`;
+  }
+
+  // --- Tab 1: cards above the Battery card ---------------------------------
+  // Power Flow answers "where does the power go" (grid vs load, plus solar on
+  // PV models); Activity is the same event feed the app shows (Battery status
+  // and Operating mode changes, newest first). Both always show *today* and
+  // sit side by side above the Battery card, which keeps its own
+  // now/today/month window and segmented control.
+  function renderPowerFlow() {
+    return `
+      <div class="mk-card mk-pad">
+        <div class="mk-set-head">
+          <div class="mk-title" style="font-size:15px">Power Flow</div>
+          <div class="mk-sub">Today</div>
+        </div>
+        <div class="mk-chart" data-chart="powerflow" style="height:212px"></div>
+      </div>`;
+  }
+
+  // "Activity" mirrors the app's event feed: one row per state change today
+  // (Battery status, Operating mode), newest first, with a dot-and-rule spine.
+  function renderActivity() {
+    return `
+      <div class="mk-card mk-pad">
+        <div class="mk-set-head">
+          <div class="mk-title" style="font-size:15px">Activity</div>
+          <div class="mk-sub" data-act-day>Today</div>
+        </div>
+        <div class="mk-act" data-activity>
+          <div class="mk-ph" style="padding:16px 0">Loading activity…</div>
+        </div>
+      </div>`;
   }
 
   // --- Tab 2: statistics ---------------------------------------------------
-  function renderStatistics(d, statTab, self) {
+  function renderStatistics(statTab) {
     const statTabs = STAT_TABS.map((t) =>
       `<button class="${t === statTab ? "active" : ""}" data-stattab="${t}">${t}</button>`
     ).join("");
@@ -1209,7 +1441,11 @@
       </div>`;
   }
 
-  async function renderCharts(panel, d, startMs, endMs, statTab) {
+  // `scope: "battery"` rebuilds only the Battery card, which is the only chart
+  // driven by the now/today/month control. Power Flow and Activity always show
+  // *today*, so touching them when that control changes threw away the user's
+  // zoom and replayed the entry animation for data that had not changed.
+  async function renderCharts(panel, d, startMs, endMs, statTab, scope = "all") {
     // Token guard: if a newer renderCharts call starts before this one
     // finishes its async fetches, abort the stale call so it doesn't
     // overwrite the newer chart with stale data.
@@ -1246,12 +1482,14 @@
       return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
     };
     // Vertical fade from the series colour into the 0 line (flip for the
-    // negative discharge half so the tint pools below the axis instead).
-    const areaGrad = (color, flip) => ({
+    // negative discharge half so the tint pools below the axis instead). The
+    // alpha is a parameter because stacked positive series (Power Flow) need a
+    // weaker film than the two non-overlapping battery halves.
+    const areaGrad = (color, flip, alpha = 0.30) => ({
       type: "linear", x: 0, y: 0, x2: 0, y2: 1,
       colorStops: flip
-        ? [{ offset: 0, color: hexToRgba(color, 0) }, { offset: 1, color: hexToRgba(color, 0.30) }]
-        : [{ offset: 0, color: hexToRgba(color, 0.30) }, { offset: 1, color: hexToRgba(color, 0) }],
+        ? [{ offset: 0, color: hexToRgba(color, 0) }, { offset: 1, color: hexToRgba(color, alpha) }]
+        : [{ offset: 0, color: hexToRgba(color, alpha) }, { offset: 1, color: hexToRgba(color, 0) }],
     });
     // Tooltip chrome is drawn by the formatter's frosted card, so ECharts'
     // own box is made transparent and borderless.
@@ -1345,7 +1583,17 @@
       const series = buckets.map((b) => ({
         name: b.name, type: "bar", barMaxWidth: 26,
         itemStyle: { color: b.color, borderRadius: [5, 5, 0, 0] },
-        data: keys.map((t) => +(((b.map.get(t) || 0) / 1000).toFixed(3))),
+        // A missing bucket is null (no bar, "—" in the tooltip) instead of a
+        // fake 0. `spotlight` dims every other bar so the current day stands
+        // out without a second colour or an extra legend entry.
+        data: keys.map((t) => {
+          const v = b.map.get(t);
+          if (v == null) return null;
+          const val = +((v / 1000).toFixed(3));
+          return b.spotlight != null && t !== b.spotlight
+            ? { value: val, itemStyle: { opacity: 0.45 } }
+            : val;
+        }),
       }));
       if (totalsEl) {
         totalsEl.textContent = buckets.map((b) => `${b.name} ${(b.total / 1000).toFixed(2)}`).join(" · ") + " kWh";
@@ -1366,24 +1614,24 @@
         series,
       });
     };
-    const pull = async (key) => {
+    const pull = async (key, from = startMs, to = endMs) => {
       const eid = d.entityIds[key];
       if (!eid) return [];
-      const data = (await fetchHistory(panel._hass, eid, startMs, endMs)).map((p) => [p.t, p.v]);
+      const data = (await fetchHistory(panel._hass, eid, from, to)).map((p) => [p.t, p.v]);
       console.log("[marstek-panel] history", key, eid, data.length, "points");
       return data;
     };
     // Raw {t, v} points (for splitting battery power by status).
-    const pullRaw = async (key) => {
+    const pullRaw = async (key, from = startMs, to = endMs) => {
       const eid = d.entityIds[key];
       if (!eid) return [];
-      return await fetchHistory(panel._hass, eid, startMs, endMs);
+      return await fetchHistory(panel._hass, eid, from, to);
     };
     // String-state points (enum sensors like battery_status).
-    const pullStatus = async (key) => {
+    const pullStatus = async (key, from = startMs, to = endMs) => {
       const eid = d.entityIds[key];
       if (!eid) return [];
-      return await fetchStateHistory(panel._hass, eid, startMs, endMs);
+      return await fetchStateHistory(panel._hass, eid, from, to);
     };
 
     // Battery: SOC (yellow dashed, right axis) + charge (green) / discharge
@@ -1392,18 +1640,82 @@
     const batTotalsEl = panel.root.querySelector("[data-battery-totals]");
     if (batEl) {
       if (statTab === "month") {
-        // Energy.GetData returns the device's own charge/discharge counters for
-        // today, the current month and the lifetime total in one reply, so the
-        // month card no longer integrates hourly mean battery_power out of
-        // long-term statistics. Today and the month share a scale; the lifetime
-        // total is an order of magnitude larger, so it goes in the caption
-        // instead of flattening both bars into a pixel.
-        const cats = [
-          { key: 0, label: "Today", charge: num(d, "energy_day_charge"), discharge: num(d, "energy_day_discharge") },
-          { key: 1, label: "This month", charge: num(d, "energy_month_charge"), discharge: num(d, "energy_month_discharge") },
-        ];
-        const hasCounters = cats.some((c) => c.charge != null || c.discharge != null);
-        if (hasCounters) {
+        // Month = one Charge/Discharge pair per elapsed day, built from the
+        // device's own daily counters (Energy.GetData day_charge/day_discharge).
+        // Those sensors are TOTAL_INCREASING and reset at local midnight, so the
+        // largest hourly reading of a day is exactly that day's total: no power
+        // integration, no direction guessing, and it survives the ~10-day raw
+        // history purge (hourly long-term statistics are kept forever).
+        const dayKey = (ms) => new Date(ms).setHours(0, 0, 0, 0);
+        const todayKey = dayKey(Date.now());
+        const dailyMax = async (key) => {
+          const out = new Map();
+          const eid = d.entityIds[key];
+          if (!eid) return out;
+          const rows = await fetchStatistics(panel._hass, eid, startMs, endMs, "hour", ["max"]);
+          for (const r of rows) {
+            if (r.max == null) continue;
+            const k = dayKey(r.start);
+            const prev = out.get(k);
+            if (prev == null || r.max > prev) out.set(k, r.max);
+          }
+          return out;
+        };
+        const [dailyCharge, dailyDischarge] = await Promise.all([
+          dailyMax("energy_day_charge"),
+          dailyMax("energy_day_discharge"),
+        ]);
+        // The current day's statistics row is compiled from the last complete
+        // hour, so the live sensor value is fresher than the aggregate.
+        const liveCharge = num(d, "energy_day_charge");
+        const liveDischarge = num(d, "energy_day_discharge");
+        if (liveCharge != null) dailyCharge.set(todayKey, liveCharge);
+        if (liveDischarge != null) dailyDischarge.set(todayKey, liveDischarge);
+        const monthCharge = num(d, "energy_month_charge");
+        const monthDischarge = num(d, "energy_month_discharge");
+        const hasCounters =
+          liveCharge != null || liveDischarge != null ||
+          monthCharge != null || monthDischarge != null;
+        if (dailyCharge.size || dailyDischarge.size) {
+          // One category per elapsed day of the current month; days without a
+          // statistics row stay empty instead of dropping a fake 0 bar.
+          const cats = [];
+          const first = new Date(startMs);
+          for (
+            let cur = new Date(first.getFullYear(), first.getMonth(), 1);
+            cur.getTime() <= todayKey;
+            cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1)
+          ) {
+            cats.push({ key: cur.getTime(), label: `${cur.getMonth() + 1}/${cur.getDate()}` });
+          }
+          const bucket = (name, color, map) => {
+            let total = 0;
+            for (const c of cats) total += map.get(c.key) || 0;
+            return { name, color, map, total, spotlight: todayKey };
+          };
+          const show = (wh) => (wh == null ? "—" : (wh / 1000).toFixed(2));
+          if (batTotalsEl) {
+            batTotalsEl.textContent =
+              `Today ${show(liveCharge)} / ${show(liveDischarge)}` +
+              ` · This month ${show(monthCharge)} / ${show(monthDischarge)}` +
+              ` · Lifetime ${show(num(d, "energy_total_charge"))} / ${show(num(d, "energy_total_discharge"))}` +
+              " kWh (charge / discharge)";
+          }
+          renderBars(
+            batEl,
+            [bucket("Charge", "#34C759", dailyCharge), bucket("Discharge", "#FF3B30", dailyDischarge)],
+            "day",
+            null,
+            "No energy counters yet",
+            cats
+          );
+        } else if (hasCounters) {
+          // No daily statistics yet (statistics disabled or a fresh install):
+          // fall back to the two counters the device does report.
+          const cats = [
+            { key: 0, label: "Today", charge: liveCharge, discharge: liveDischarge },
+            { key: 1, label: "This month", charge: monthCharge, discharge: monthDischarge },
+          ];
           const bucket = (name, color, field) => {
             const map = new Map();
             let total = 0;
@@ -1597,6 +1909,284 @@
         }));
       }
     }
+    // The two cards above the Battery chart always show *today*; they are not
+    // tied to the now/today/month control that drives the battery card.
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayStartMs = dayStart.getTime();
+    const dayEndMs = Date.now();
+    // Power flow: grid and load on one shared W axis (solar added on PV
+    // models). Resampled to a grid like the battery card, because an idle
+    // inverter writes no recorder rows and the line would otherwise collapse.
+    const pfEl = scope === "battery" ? null : panel.root.querySelector('[data-chart="powerflow"]');
+    if (pfEl) {
+      const stepMs = gridStep(dayStartMs, dayEndMs);
+      // Blue/violet for the two house-side flows, following the energy-panel
+      // convention (Home Assistant ships grid #488fc2 / grid return #8353d1;
+      // Enphase and SolarEdge draw consumption blue), amber for solar. Mapped
+      // onto the panel's iOS tokens: Load #0A84FF, Grid #5E5CE6, Solar #FF9F0A.
+      // Red/green stay reserved for the Battery card's charge/discharge one
+      // card below, so the two charts never contradict each other.
+      const defs = [
+        { key: "ongrid_power", name: "Grid", color: "#5E5CE6" },
+        { key: "total_power", name: "Load", color: "#0A84FF" },
+        { key: "pv_total_power", name: "Solar", color: "#FF9F0A" },
+      ];
+      const pfData = [];
+      for (const def of defs) {
+        const raw = await pull(def.key, dayStartMs, dayEndMs);
+        let data = raw.length ? holdResample(raw, dayStartMs, dayEndMs, stepMs) : [];
+        if (!data.length) {
+          // Fresh install or a purged window: keep the card readable with the
+          // live reading held flat instead of reporting "no history".
+          const live = num(d, def.key);
+          if (live != null) data = [[dayStartMs, live], [dayEndMs, live]];
+        }
+        if (data.length) pfData.push({ ...def, data });
+      }
+      if (!pfData.length) noData(pfEl, "No power history yet");
+      else {
+        const series = pfData.map((s) => {
+          const tail = s.data[s.data.length - 1];
+          // Same stroke as the Battery card: 2.4px round-cap line over a fade,
+          // straight segments (the rows are already held on a grid — `smooth`
+          // would invent ramps between them and was the main reason this card
+          // looked like a different chart).
+          return Object.assign(line(s.name, s.data, s.color, 0, false, false), {
+            smooth: false,
+            lineStyle: {
+              width: 2.4, color: s.color, cap: "round", join: "round",
+              shadowColor: hexToRgba(s.color, 0.30), shadowBlur: 8, shadowOffsetY: 3,
+            },
+            // Grid stays a bare line: it crosses zero and usually has the
+            // largest magnitude, so a third film would sit under the other two
+            // and flatten both.
+            areaStyle: s.name === "Grid" ? undefined : { color: areaGrad(s.color, false, 0.16) },
+            // Single white-ringed dot on the newest reading: gives each line a
+            // terminus without the noise of per-point symbols.
+            markPoint: tail
+              ? {
+                  symbol: "circle", symbolSize: 8, silent: true,
+                  itemStyle: { color: s.color, borderColor: "#fff", borderWidth: 2, shadowColor: hexToRgba(s.color, 0.45), shadowBlur: 6 },
+                  data: [{ coord: tail }],
+                }
+              : undefined,
+            // One hairline at 0 W marks the import/export boundary; drawing it
+            // on every series would stack four identical dashed lines.
+            markLine:
+              s.name === "Grid"
+                ? {
+                    silent: true, symbol: "none", label: { show: false },
+                    lineStyle: { color: "rgba(29,29,31,0.16)", width: 1, type: [3, 3] },
+                    data: [{ yAxis: 0 }],
+                  }
+                : undefined,
+          });
+        });
+        mkChart(pfEl).setOption(
+          baseOpt(series, {
+            // Legend inside the canvas at the top right, exactly like Battery;
+            // the old inline dot row under the chart is gone.
+            legend: { data: series.map((x) => x.name), top: 0, right: 10, icon: "circle", itemWidth: 9, itemHeight: 9, itemGap: 14, textStyle: { color: "#6E6E73", fontSize: 11 } },
+            tooltip: tipConf(axisTooltip((v) => Math.round(+v).toLocaleString() + " W")),
+            // Axes now use the Battery card's type ramp (#8E8E93 / 11px) and
+            // hairline (#F0F0F2); 10px grey-on-grey ticks made the two cards
+            // sitting 20px apart look like they came from different products.
+            xAxis: { type: "time", min: dayStartMs, max: dayEndMs, axisLine: { lineStyle: { color: "#E5E5EA" } }, axisTick: { show: false }, axisLabel: { color: "#8E8E93", fontSize: 11, hideOverlap: true, formatter: (v) => new Date(v).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }) } },
+            // Same zoom pair as Battery: wheel/drag inside the plot plus the
+            // visible slider under the time labels, double-click to reset.
+            dataZoom: [insideZoom(), sliderZoom()],
+            grid: { left: 52, right: 24, top: 44, bottom: 58 },
+            yAxis: { type: "value", name: "W", nameGap: 8, axisLine: { show: false }, axisTick: { show: false }, nameTextStyle: { color: "#A1A1A6" }, splitLine: { lineStyle: { color: "#F0F0F2" } }, axisLabel: { color: "#8E8E93", fontSize: 11 } },
+          })
+        );
+      }
+    }
+    // Activity feed: the event list the app shows under "Activity", built from
+    // every user-facing state the integration records today -- battery status,
+    // operating mode, charge/discharge permission, CT and Bluetooth link,
+    // subsystem faults and firmware changes -- newest first.
+    const actEl = scope === "battery" ? null : panel.root.querySelector("[data-activity]");
+    if (actEl) {
+      const dayEl = panel.root.querySelector("[data-act-day]");
+      const MODE_COLORS = { auto: "#0A84FF", ai: "#5E5CE6", manual: "#F5A524", passive: "#34C759", ups: "#FF453A" };
+      const label = (s) => {
+        const t = String(s || "");
+        return /^[a-z]/.test(t) ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+      };
+      const hexCode = (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n === 0) return "";
+        return /^0x/i.test(String(v)) ? `Code ${String(v).toUpperCase()}` : `Code 0x${n.toString(16).toUpperCase()}`;
+      };
+      // One entry per event source: kind = row label, text = right-hand state,
+      // color = dot colour. Only sources that exist on this device are fetched.
+      const ACT_SOURCES = [
+        {
+          key: "battery_status", kind: "Battery status",
+          text: (v) => label(v),
+          color: (v) => (v === "charging" ? "#34C759" : v === "selling" ? "#FF453A" : "#C7C7CC"),
+        },
+        {
+          key: "device_mode", kind: "Operating mode",
+          text: (v) => label(v),
+          color: (v) => MODE_COLORS[String(v).toLowerCase()] || "#C7C7CC",
+        },
+        {
+          key: "charge_permission", kind: "Charge permission",
+          text: (v) => (v === "on" ? "Allowed" : "Blocked"),
+          color: (v) => (v === "on" ? "#34C759" : "#C7C7CC"),
+        },
+        {
+          key: "discharge_permission", kind: "Discharge permission",
+          text: (v) => (v === "on" ? "Allowed" : "Blocked"),
+          color: (v) => (v === "on" ? "#34C759" : "#C7C7CC"),
+        },
+        {
+          key: "ct_state", kind: "CT",
+          text: (v) => (v === "on" ? "Connected" : "Disconnected"),
+          color: (v) => (v === "on" ? "#34C759" : "#C7C7CC"),
+        },
+        {
+          key: "ble_state", kind: "Bluetooth",
+          text: (v) => (v === "connect" ? "Connected" : "Disconnected"),
+          color: (v) => (v === "connect" ? "#0A84FF" : "#C7C7CC"),
+        },
+        // Device settings: every control that has a readable state is part of
+        // the activity feed, because "who turned the LED off" is an event too.
+        {
+          key: "led", kind: "Front-panel LED",
+          text: (v) => (v === "on" ? "On" : "Off"),
+          color: (v) => (v === "on" ? "#F5A524" : "#C7C7CC"),
+        },
+        {
+          key: "bluetooth_advertising", kind: "Bluetooth advertising",
+          text: (v) => (v === "on" ? "On" : "Off"),
+          color: (v) => (v === "on" ? "#0A84FF" : "#C7C7CC"),
+        },
+        {
+          key: "power_version", kind: "Power version",
+          text: (v) => `${v} W`,
+          color: () => "#8E8E93",
+        },
+        {
+          key: "dod", kind: "Depth of discharge",
+          text: (v) => `${v}%`,
+          color: () => "#8E8E93",
+        },
+        ...[
+          ["ems_error", "EMS fault"],
+          ["bms_error", "BMS fault"],
+          ["inv_error", "INV fault"],
+          ["mppt_error", "MPPT fault"],
+        ].map(([key, kind]) => ({
+          key, kind,
+          text: (v) => hexCode(v) || "Cleared",
+          color: (v) => (Number(v) ? "#FF453A" : "#34C759"),
+        })),
+        ...[
+          ["ems_version", "EMS firmware"],
+          ["bms_version", "BMS firmware"],
+          ["inverter_version", "INV firmware"],
+        ].map(([key, kind]) => ({
+          key, kind,
+          text: (v) => String(v),
+          color: () => "#8E8E93",
+        })),
+      ];
+      // Icon tile per event kind, drawn on the coloured square. 24-unit grid so
+      // every glyph keeps the same optical weight at 15px.
+      const ACT_ICONS = {
+        battery: '<rect x="2.8" y="8.4" width="14.4" height="7.2" rx="2.2"/><path d="M20.4 10.8v2.4"/>',
+        mode: '<path d="M4.6 9.6a7.6 7.6 0 0 1 13-2.9l2 2"/><path d="M20.2 4.6v4.7h-4.7"/><path d="M19.4 14.4a7.6 7.6 0 0 1-13 2.9l-2-2"/><path d="M3.8 19.4v-4.7h4.7"/>',
+        permission: '<path d="M12 19V5.4"/><path d="M6.4 10.8L12 5.2l5.6 5.6"/>',
+        ct: '<rect x="6.4" y="9" width="11.2" height="7" rx="2.2"/><path d="M9.6 9V5.6M14.4 9V5.6M12 16v3"/>',
+        bluetooth: '<path d="M8.4 7.4l7.2 9.2L12 20V4l3.6 3.4-7.2 9.2"/>',
+        led: '<path d="M12 3.4a5.8 5.8 0 0 0-3.4 10.5v2.7h6.8v-2.7A5.8 5.8 0 0 0 12 3.4z"/><path d="M9.8 19.8h4.4"/>',
+        fault: '<path d="M12 4.2l8.6 15.2H3.4z"/><path d="M12 10v4"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/>',
+        firmware: '<rect x="7" y="7" width="10" height="10" rx="2.2"/><path d="M10 3.4v3.6M14 3.4v3.6M10 17v3.6M14 17v3.6M3.4 10H7M3.4 14H7M17 10h3.6M17 14h3.6"/>',
+        power: '<path d="M13.2 3.6L5.6 13.4h5.2l-1 7 7.6-9.8h-5.2z"/>',
+      };
+      const ACT_ICON_OF = {
+        "Battery status": "battery",
+        "Operating mode": "mode",
+        "Charge permission": "permission",
+        "Discharge permission": "permission",
+        CT: "ct",
+        Bluetooth: "bluetooth",
+        "Front-panel LED": "led",
+        "Bluetooth advertising": "bluetooth",
+        "Power version": "power",
+        "Depth of discharge": "battery",
+        "EMS fault": "fault",
+        "BMS fault": "fault",
+        "INV fault": "fault",
+        "MPPT fault": "fault",
+        "EMS firmware": "firmware",
+        "BMS firmware": "firmware",
+        "INV firmware": "firmware",
+      };
+      const histories = await Promise.all(
+        ACT_SOURCES.map((src) =>
+          d.entityIds[src.key] ? pullStatus(src.key, dayStartMs, dayEndMs) : Promise.resolve([])
+        )
+      );
+      const events = [];
+      ACT_SOURCES.forEach((src, i) => {
+        let prev = null;
+        for (const p of histories[i]) {
+          const s = p.s;
+          if (s == null || s === "unavailable" || s === "unknown") continue;
+          // The recorder also writes a row when only attributes change; keep
+          // one row per real state change.
+          if (s === prev) continue;
+          prev = s;
+          events.push({ t: p.t, kind: src.kind, text: src.text(s), color: src.color(s), eid: d.entityIds[src.key] });
+        }
+      });
+      events.sort((a, b) => b.t - a.t);
+      if (dayEl) {
+        const dayText = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+        dayEl.textContent = events.length ? `${dayText} · ${events.length} events` : dayText;
+      }
+      if (!events.length) {
+        actEl.innerHTML = '<div class="mk-ph" style="padding:14px 0">No activity today</div>';
+      } else {
+        actEl.innerHTML = `<div class="mk-act-list">${events
+          .slice(0, 300)
+          .map((e) => {
+            const clock = new Date(e.t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+            // Muted grey states need a darker pill text than their dot colour,
+            // otherwise "Off" / "Unavailable" reads as disabled.
+            const tone = e.color === "#C7C7CC" ? "#6E6E73" : e.color;
+            const glyph = ACT_ICONS[ACT_ICON_OF[e.kind]] || "";
+            return `<div class="mk-act-row"${e.eid ? ` data-entity="${esc(e.eid)}" role="button" tabindex="0" title="${esc(e.eid)}"` : ""}>
+              <span class="mk-act-ico" style="background:${e.color}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg></span>
+              <span class="mk-act-body">
+                <span class="mk-act-name">${esc(e.kind)}</span>
+                <span class="mk-act-time">${clock}</span>
+              </span>
+              <span class="mk-act-pill" style="color:${tone};background:${hexToRgba(tone, 0.12)}">${esc(e.text)}</span>
+              ${e.eid ? '<span class="mk-act-chev">›</span>' : ""}
+            </div>`;
+          })
+          .join("")}</div>`;
+      }
+      // Rows are injected after _wire() ran, so the shared more-info action is
+      // delegated once on the container instead of bound per row.
+      if (!actEl._wired) {
+        actEl._wired = true;
+        actEl.addEventListener("click", (ev) => {
+          const row = ev.target.closest(".mk-act-row[data-entity]");
+          if (!row) return;
+          panel.dispatchEvent(new CustomEvent("hass-more-info", {
+            detail: { entityId: row.dataset.entity },
+            bubbles: true,
+            composed: true,
+          }));
+        });
+      }
+    }
     // WiFi signal strength (dBm) from the local wifi_rssi sensor history.
     // The sensor only writes a recorder row when the value changes, so a
     // stable link yields just one or two points — invisible as a symbol-less
@@ -1642,6 +2232,17 @@
     const modeBtns = MODE_OPTIONS.map((m) =>
       `<button class="mk-mode-btn ${m === modeCur ? "active" : ""}" data-mode="${m}" data-edit-ctrl${dis}>${m.toUpperCase()}</button>`
     ).join("");
+    // UPS is a real device mode (ES.SetMode "UPS"), so the Device Controls
+    // toggle is on exactly while the device reports it. The row is offered in
+    // Manual mode — UPS is the backup behaviour of a manual setup — and stays
+    // visible while UPS is active so it can be switched back to Manual.
+    const upsOn = modeCur === "ups";
+    const showUps = modeCur === "manual" || upsOn;
+    // Modes the segment cannot show (UPS, Passive) get a chip beside it. A
+    // failed poll leaves the select "unknown"/"unavailable", which must not
+    // turn into an "UNKNOWN" chip.
+    const KNOWN_MODES = ["auto", "ai", "manual", "passive", "ups"];
+    const extraMode = KNOWN_MODES.includes(modeCur) && !MODE_OPTIONS.includes(modeCur) ? modeCur : "";
     const manualRows = [
       ["Charge", "00:00", "06:00", "MON", "800", "open"],
       ["Discharge", "18:00", "22:00", "MON-FRI", "1200", "open"],
@@ -1657,7 +2258,7 @@
         <div class="mk-sub" data-lock-note style="margin:-10px 0 10px;display:${locked ? "block" : "none"}">Editing is locked — tap the padlock to unlock this page.</div>
         <div class="mk-row" style="margin-top:12px"><span class="k">Maximum Grid Power (W)</span><span class="v" style="color:#999">—</span></div>
         <div class="mk-row"><span class="k">Current Mode</span>
-          <span class="v"><div class="mk-seg" data-mode-group>${modeBtns}</div></span></div>
+          <span class="v">${extraMode ? `<span class="mk-sub" style="margin-right:10px">${esc(extraMode.toUpperCase())}</span>` : ""}<div class="mk-seg" data-mode-group>${modeBtns}</div></span></div>
         <div style="margin-top:16px">
           <div class="mk-sub" style="margin-bottom:8px">Manual time slots (read-only; edit via Marstek app / set_manual_schedule service)</div>
           <table class="mk-table">
@@ -1684,6 +2285,8 @@
         <div class="mk-set-col">
           <div class="mk-card mk-pad">
             <div class="mk-title" style="font-size:16px;margin-bottom:12px">Device Controls</div>
+            <div class="mk-row" data-ups-row style="display:${showUps ? "flex" : "none"};margin-top:-2px"><span class="k">UPS Mode</span>
+              <div class="mk-toggle${upsOn ? " on" : ""}" data-tog="ups" data-edit-ctrl aria-label="UPS mode" role="switch" aria-checked="${upsOn}"></div></div>
             ${mkToggleRow("Front-panel LED", ledEid, "led", (d.states.led || {}).state === "on")}
             ${mkToggleRow("Bluetooth Advertising", bleEid, "ble", (d.states.bluetooth_advertising || {}).state === "on")}
             <div class="mk-row"><span class="k">Power Version</span>
@@ -1705,8 +2308,9 @@
         </div>
       </div>`;
   }
-  // Both toggles are read back from Sys.GetInfo, so the switch position comes
-  // from the entity state instead of defaulting to off.
+  // LED / Bluetooth toggles are read back from Sys.GetInfo, so the switch
+  // position comes from the entity state instead of defaulting to off. The UPS
+  // toggle is not built here: it is a mode, so its row is emitted inline above.
   const mkToggleRow = (label, eid, kind, on) => {
     if (!eid) return `<div class="mk-row"><span class="k">${label}</span><span class="v" style="color:#999">—</span></div>`;
     return `<div class="mk-row"><span class="k">${label}</span><div class="mk-toggle${on ? " on" : ""}" data-tog="${kind}" data-edit-ctrl></div></div>`;
@@ -1744,22 +2348,24 @@
       : known.length
         ? "No faults reported by the device."
         : "No error reply yet — Err.Get is polled with the slow-changing components.";
-    const body = rows
-      .map((r, i) => `<tr>
-        <td>${i + 1}</td>
-        <td>${esc(r.name)}</td>
-        <td${r.eid ? ` data-entity="${esc(r.eid)}" role="button" tabindex="0" title="${esc(r.eid)}" style="cursor:pointer"` : ""}>${esc(r.hex)}</td>
-        <td><span class="mk-dot ${r.code === null ? "off" : r.fault ? "warn" : "on"}"></span>${r.code === null ? "Unavailable" : r.fault ? "Fault" : "OK"}</td>
-      </tr>`)
+    // One tile per subsystem: name + status pill on top, the raw bitmask as the
+    // hero figure, and the sensor entity underneath. Tiles with an entity open
+    // HA's more-info dialog via the shared [data-entity] click handler.
+    const tiles = rows
+      .map((r) => {
+        const pillCls = r.code === null ? "off" : r.fault ? "bad" : "on";
+        const pillTxt = r.code === null ? "Unavailable" : r.fault ? "Fault" : "OK";
+        return `<div class="mk-err-tile" data-fault="${r.fault ? "1" : "0"}"${r.eid ? ` data-entity="${esc(r.eid)}" role="button" tabindex="0" title="${esc(r.eid)}"` : ""}>
+        <div class="t"><span class="name">${esc(r.name)}</span><span class="mk-pill ${pillCls}">${pillTxt}</span></div>
+        <div class="code${r.code === null ? " na" : ""}">${esc(r.hex)}</div>
+        <div class="eid">${r.eid ? esc(r.eid) : "no sensor entity"}</div>
+      </div>`;
+      })
       .join("");
     return `<div class="mk-card mk-pad" style="margin-top:20px">
       <div class="mk-section-title" style="padding:0 0 8px">Real Time Fault List</div>
       <div class="mk-sub" style="margin-bottom:12px">${esc(summary)}</div>
-      <table class="mk-table">
-        <thead><tr><th>NO</th><th>Subsystem</th><th>Error Code</th><th>Status</th></tr></thead>
-        <tbody>${body}</tbody>
-      </table>
-      <div class="mk-sub" style="margin-top:10px">Codes are the raw bitmasks reported by Err.Get (0x0 = no fault).</div>
+      <div class="mk-err-grid">${tiles}</div>
     </div>`;
   }
 
@@ -1776,6 +2382,7 @@
       this._locked = false; // settings page edit guard (padlock)
       this._dodVal = 60;
       this._togglePendingUntil = 0; // LED/BLE toggle hold while a write lands
+      this._manualSlot = null; // last Manual slot confirmed in the sheet (prefill)
       this._customStart = null; // YYYY-MM-DD, set by the range picker
       this._customEnd = null;
       this._fp = null; // flatpickr instance
@@ -1791,7 +2398,7 @@
       // mid-flight). The stale call then renders on a detached node and the
       // visible div stays blank. Charts use historical data via websocket, not
       // live state, so only live text (header + current RSSI) is refreshed.
-      if (this.querySelector("[data-chart='battery'], [data-chart='wifi']")) {
+      if (this.querySelector("[data-chart='battery'], [data-chart='powerflow'], [data-activity], [data-chart='wifi']")) {
         const d = this._currentDevice();
         if (d) this._refreshHeader(d);
         return;
@@ -1833,6 +2440,11 @@
       }
       const modeEl = this.querySelector("[data-meta-mode]");
       if (modeEl) modeEl.textContent = val(d, "device_mode") || "—";
+      // The mode segment follows the device too: a mode change made here (or
+      // from the app) moves the highlight without rebuilding the tab.
+      const modeNow = val(d, "device_mode") || "";
+      const modeSeg = this.querySelector("[data-mode-group]");
+      if (modeSeg) modeSeg.querySelectorAll(".mk-mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === modeNow));
       const wifiEl = this.querySelector("[data-meta-wifi]");
       if (wifiEl) wifiEl.textContent = val(d, "wifi_ssid") || "—";
       const rssi = this.querySelector("[data-wifi-rssi]");
@@ -1853,10 +2465,19 @@
       // LED / Bluetooth toggles mirror the entities (Sys.GetInfo readback).
       // Skip while a just-clicked write is still in the debounce window, so the
       // toggle does not flash back to the old polled value.
+      // The settings tab is not re-rendered while it holds the WiFi chart, so
+      // the UPS row follows the mode in place instead of waiting for a rebuild.
+      const showUpsRow = modeNow === "manual" || modeNow === "ups";
+      const upsRow = this.querySelector("[data-ups-row]");
+      if (upsRow) upsRow.style.display = showUpsRow ? "flex" : "none";
       if (!(this._togglePendingUntil && performance.now() < this._togglePendingUntil)) {
+        const TOG_STATE = { led: "led", ble: "bluetooth_advertising" };
         for (const t of this.querySelectorAll("[data-tog]")) {
-          const st = d.states[t.dataset.tog === "led" ? "led" : "bluetooth_advertising"];
-          if (st) t.classList.toggle("on", st.state === "on");
+          const kind = t.dataset.tog;
+          // UPS is a mode, so its state is the mode itself, not a switch entity.
+          const on = kind === "ups" ? modeNow === "ups" : (d.states[TOG_STATE[kind]] || {}).state === "on";
+          t.classList.toggle("on", on);
+          if (t.hasAttribute("role")) t.setAttribute("aria-checked", String(on));
         }
       }
       // Signal chip beside the level figure: repaint bars without rebuilding.
@@ -2048,7 +2669,9 @@
               setTimeout(() => { this._suppressPicker = false; }, 0);
             }
           }
-          renderCharts(this, d, r.start, r.end, tab);
+          // Only the Battery card follows this control; the two cards above it
+          // stay pinned to today.
+          renderCharts(this, d, r.start, r.end, tab, "battery");
         })
       );
       // Range picker (Litepicker, two-input range). Completing a selection
@@ -2086,7 +2709,7 @@
                   const dev = this._currentDevice();
                   if (dev) {
                     const rr = computeRange("custom", this);
-                    renderCharts(this, dev, rr.start, rr.end, "custom");
+                    renderCharts(this, dev, rr.start, rr.end, "custom", "battery");
                   }
                 });
               },
@@ -2102,11 +2725,40 @@
         this._applyLock();
       });
       this.querySelectorAll("[data-mode-group] .mk-mode-btn").forEach((b) =>
-        b.addEventListener("click", () => {
+        b.addEventListener("click", async () => {
           if (this._locked) return;
           const d = this._currentDevice();
           const eid = d && d.entityIds.device_mode;
           if (!eid) return;
+          // Manual needs a time slot, so the mode button opens the app-style
+          // schedule sheet and the confirmed slot is sent as manual_cfg
+          // (the documented ES.SetMode Manual payload) instead of a bare
+          // select_option. Cancelling leaves the mode untouched.
+          if (b.dataset.mode === "manual") {
+            const slot = await manualModeSheet(Object.assign({
+              powerMax: Number((d.states.power_version || {}).state) || 2500,
+            }, this._manualSlot || {}));
+            if (!slot) return;
+            this._manualSlot = slot;
+            runWithToast("Set mode", () =>
+              this._hass.callService("marstek", "set_mode", {
+                entity_id: eid,
+                mode: "manual",
+                config: {
+                  manual_cfg: [{
+                    time_num: 0,
+                    start_time: slot.start,
+                    end_time: slot.end,
+                    week_set: slot.weekSet,
+                    power: slot.power,
+                    enable: 1,
+                    manual_set: slot.manualSet,
+                  }],
+                },
+              })
+            );
+            return;
+          }
           runWithToast("Set mode", () => this._hass.callService("select", "select_option", { entity_id: eid, option: b.dataset.mode }));
         })
       );
@@ -2164,9 +2816,26 @@
           if (this._locked) return;
           const d = this._currentDevice();
           const kind = t.dataset.tog;
+          const on = !t.classList.contains("on");
+          // UPS is a device mode, so the toggle makes the same select call the
+          // Current Mode buttons make: "ups" on, "manual" back off.
+          if (kind === "ups") {
+            const modeEid = d && d.entityIds.device_mode;
+            if (!modeEid) return;
+            t.classList.toggle("on", on);
+            t.setAttribute("aria-checked", String(on));
+            this._togglePendingUntil = performance.now() + 6000;
+            runWithToast("Set mode", () =>
+              this._hass.callService("select", "select_option", { entity_id: modeEid, option: on ? "ups" : "manual" }).catch((e) => {
+                t.classList.toggle("on", !on); // roll back the optimistic toggle
+                t.setAttribute("aria-checked", String(!on));
+                throw e;
+              })
+            );
+            return;
+          }
           const eid = d && (kind === "led" ? d.entityIds.led : d.entityIds.bluetooth_advertising);
           if (!eid) return;
-          const on = !t.classList.contains("on");
           t.classList.toggle("on", on);
           // The write is debounced, so hold the toggle before the readback sync.
           this._togglePendingUntil = performance.now() + 6000;
