@@ -3,9 +3,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.ruff]
-# Home Assistant 2026.10 requires Python 3.13, and the test job runs 3.13,
+# Home Assistant 2026.10 requires Python 3.14.2, and the test job runs 3.14,
 # so lint for the interpreter the integration actually supports.
-target-version = "py313"
+target-version = "py314"
 line-length = 88
 
 [tool.ruff.lint]
@@ -26,7 +26,7 @@ ignore = ["E501"]
 "tests/*" = ["S101", "S311"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 files = ["custom_components/marstek"]
 strict = true
 warn_unreachable = true

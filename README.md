@@ -35,11 +35,12 @@ All communication stays on your local network; no cloud account is required.
 
 ## Prerequisites
 
-Home Assistant **2026.10** or newer is required. This is the same minimum
-`hacs.json` declares, so HACS refuses to install on an older version. The
-integration imports `homeassistant.helpers.target.TargetSelection` (added in
-2026.1) and the `binary_sensor` constant module (added in 2026.10); older
-releases fail to load the integration at all.
+Home Assistant **2026.10** or newer is required, which also means Python
+**3.14.2** or newer (Home Assistant raised that floor in 2026.10). This is the
+same minimum `hacs.json` declares, so HACS refuses to install on an older
+version, and the integration imports
+`homeassistant.helpers.target.TargetSelection` (added in 2026.1), so older
+releases fail to load it at all.
 
 1. Your Marstek device is connected to the same LAN as Home Assistant.
 2. The **local API** feature is enabled in the Marstek mobile app.

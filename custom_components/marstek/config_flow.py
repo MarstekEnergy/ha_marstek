@@ -131,7 +131,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             device = await self._async_get_device_from_host(host, port)
-        except (TimeoutError, OSError):
+        except TimeoutError, OSError:
             errors["base"] = "cannot_connect"
         except TypeError:
             errors["base"] = "device_not_found"
@@ -154,7 +154,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if udp_client is None:
             try:
                 udp_client = await async_create_udp_client(self.hass)
-            except (TimeoutError, OSError, TypeError):
+            except TimeoutError, OSError, TypeError:
                 self.discovery_error = "discovery_failed"
                 return
             own_client = True
@@ -164,7 +164,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # empty list) for 30s, so a retry that hit the cache would not
             # actually search the network again.
             discovered_devices = await udp_client.discover_devices(use_cache=False)
-        except (TimeoutError, OSError, TypeError):
+        except TimeoutError, OSError, TypeError:
             self.discovery_error = "discovery_failed"
             return
         finally:
@@ -237,7 +237,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             try:
                 device = await self._async_get_device_from_host(host, port)
-            except (TimeoutError, OSError):
+            except TimeoutError, OSError:
                 errors["base"] = "cannot_connect"
             except TypeError:
                 errors["base"] = "device_not_found"

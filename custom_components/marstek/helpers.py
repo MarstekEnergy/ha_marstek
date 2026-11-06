@@ -16,7 +16,7 @@ async def async_create_udp_client(hass: HomeAssistant) -> MarstekUDPClient:
     try:
         await client.async_setup()
         addresses = await network.async_get_ipv4_broadcast_addresses(hass)
-    except (TimeoutError, OSError, TypeError):
+    except TimeoutError, OSError, TypeError:
         await client.async_cleanup()
         raise
 
