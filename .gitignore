@@ -33,7 +33,7 @@ home-assistant_*.log
 
 # Reference documents (not needed in the repo)
 *.pdf
-# ...except the official Open API document shipped in docs/
+# ...except the official local API document shipped in docs/
 !docs/*.pdf
 
 # OS
@@ -45,3 +45,6 @@ Thumbs.db
 .agents/
 .aws/
 .codex/
+
+# Local scratch notes and reference material (never committed)
+ignore/

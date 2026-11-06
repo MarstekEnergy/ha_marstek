@@ -44,7 +44,7 @@
               "host": "The IP address of your Marstek device on your local network.",
               "port": "The UDP port the device listens on. Default 30000; use 49152-65535 if you configured a custom port."
           },
-          "description": "Enter the IP address of your Marstek device. The device must be on the same local network and have Open API enabled.",
+          "description": "Enter the IP address of your Marstek device. The device must be on the same local network and have the local API enabled.",
           "title": "Add Marstek device"
       },
       "user": {
@@ -68,30 +68,15 @@
               "name": "Discharge permission"
           }
       },
-      "button": {
-      "factory_reset": {
-        "name": "Factory reset (clears data)"
-      },
-      "factory_reset_keep_data": {
-        "name": "Factory reset (keep data)"
-      }
-    },
     "number": {
       "dod": {
-        "name": "Discharge depth (write-only)"
-      },
-      "passive_cd_time": {
-        "name": "Passive cooldown (write-only)"
-      },
-      "passive_power": {
-        "name": "Passive power (write-only)"
+        "name": "Discharge depth (DOD)"
       }
     },
     "select": {
       "device_mode": {
         "name": "Operating mode",
         "state": {
-          "ai": "AI",
           "auto": "Auto",
           "manual": "Manual",
           "passive": "Passive",
@@ -99,18 +84,15 @@
         }
       },
       "power_version": {
-        "name": "Power version"
+        "name": "Maximum Grid power"
       }
     },
     "sensor": {
       "phase_a_power": {
-        "name": "Phase A power"
+        "name": "CT Phase A power"
       },
       "phase_b_power": {
-        "name": "Phase B power"
-      },
-      "battery_capacity": {
-        "name": "Battery capacity"
+        "name": "CT Phase B power"
       },
       "battery_power": {
         "name": "Battery power"
@@ -122,14 +104,14 @@
         "name": "Battery remaining capacity"
       },
       "battery_soc": {
-        "name": "Battery level"
+        "name": "SOC"
       },
       "battery_status": {
         "name": "Battery status",
         "state": {
           "charging": "[%key:common::state::charging%]",
           "idle": "[%key:common::state::idle%]",
-          "selling": "Selling"
+          "selling": "Discharge"
         }
       },
       "battery_temperature": {
@@ -143,13 +125,7 @@
         }
       },
       "phase_c_power": {
-        "name": "Phase C power"
-      },
-      "ct_input_energy": {
-        "name": "CT input energy"
-      },
-      "ct_output_energy": {
-        "name": "CT output energy"
+        "name": "CT Phase C power"
       },
       "device_mode": {
         "name": "Device mode",
@@ -196,7 +172,7 @@
         "name": "Lifetime load energy"
       },
       "total_power": {
-        "name": "Total power"
+        "name": "CT total power"
       },
       "total_pv_energy": {
         "name": "Lifetime PV energy"
@@ -213,13 +189,10 @@
     },
     "switch": {
       "bluetooth_advertising": {
-        "name": "Bluetooth advertising (write-only)"
+        "name": "Bluetooth lock"
       },
       "led": {
-        "name": "Front-panel LED (write-only)"
-      },
-      "ups": {
-        "name": "UPS mode (write-only)"
+        "name": "Front-panel LED"
       }
     }
   },
@@ -229,9 +202,6 @@
     },
     "device_update_failed": {
       "message": "Unable to update the Marstek device at {host}."
-    },
-    "invalid_device_data": {
-      "message": "The Marstek device at {host} returned invalid data."
     },
     "missing_stable_id": {
       "message": "The Marstek device at {host} did not provide a stable ID."
@@ -255,14 +225,6 @@
     "set_power_version": {
       "name": "Set power version",
       "description": "Set the charge and discharge power version, in watts."
-    },
-    "factory_reset": {
-      "name": "Factory reset",
-      "description": "Reset the device to factory settings."
-    },
-    "set_manual_schedule": {
-      "name": "Set manual schedule",
-      "description": "Replace the device's Manual-mode time schedule. Each slot is sent as its own SetMode call (single-object manual_cfg, the documented form)."
     }
   }
 }

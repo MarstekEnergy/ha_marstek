@@ -36,6 +36,7 @@ def test_venusc_and_mini_are_not_supported() -> None:
     # The supported set still covers Venus E / A / D.
     assert "VNSE3-0" in const.SUPPORTED_DEVICE_TYPES
     assert "VNSA-0" in const.SUPPORTED_DEVICE_TYPES
+    assert "VNSD-0" in const.SUPPORTED_DEVICE_TYPES
 
 
 def test_power_versions_for_venus_a() -> None:
@@ -61,12 +62,9 @@ def test_power_versions_for_unknown_model_falls_back() -> None:
     assert versions == const.POWER_VERSION_OPTIONS
 
 
-def test_selectable_modes_exclude_passive() -> None:
-    """The operating-mode select offers Auto/AI/Manual/UPS; Passive is service-only."""
-    assert set(const.SELECTABLE_MODE_OPTIONS) == {"auto", "ai", "manual", "ups"}
+def test_selectable_modes_exclude_ai_passive_and_manual() -> None:
+    """The select offers Auto/UPS; AI, Passive and Manual are not written from HA."""
+    assert set(const.SELECTABLE_MODE_OPTIONS) == {"auto", "ups"}
+    assert "ai" not in const.SELECTABLE_MODE_OPTIONS
     assert "passive" not in const.SELECTABLE_MODE_OPTIONS
-
-
-def test_port_constant_exists() -> None:
-    """The per-device port config key is defined."""
-    assert const.CONF_PORT == "port"
+    assert "manual" not in const.SELECTABLE_MODE_OPTIONS

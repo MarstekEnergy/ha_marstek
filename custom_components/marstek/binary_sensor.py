@@ -4,15 +4,15 @@ import logging
 from typing import override
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import MarstekConfigEntry
+from .coordinator import MarstekConfigEntry, MarstekDataUpdateCoordinator
 from .entity import MarstekEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,13 +43,14 @@ class MarstekPermissionBinarySensor(MarstekEntity, BinarySensorEntity):
     @override
     def is_on(self) -> bool | None:
         """Return True if the permission flag is set."""
-        return self.coordinator.data.get_value(self.entity_description.key)
+        value = self.coordinator.data.get_value(self.entity_description.key)
+        return None if value is None else bool(value)
 
 
 class MarstekChargePermissionBinarySensor(MarstekPermissionBinarySensor):
     """Charging permission flag from Bat.GetStatus."""
 
-    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
+    def __init__(self, coordinator: MarstekDataUpdateCoordinator) -> None:
         """Initialize the charge-permission binary sensor."""
         super().__init__(
             coordinator,
@@ -65,7 +66,7 @@ class MarstekChargePermissionBinarySensor(MarstekPermissionBinarySensor):
 class MarstekDischargePermissionBinarySensor(MarstekPermissionBinarySensor):
     """Discharge permission flag from Bat.GetStatus."""
 
-    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
+    def __init__(self, coordinator: MarstekDataUpdateCoordinator) -> None:
         """Initialize the discharge-permission binary sensor."""
         super().__init__(
             coordinator,
@@ -85,14 +86,16 @@ class MarstekConnectedBinarySensor(MarstekEntity, BinarySensorEntity):
     and only reports failure once the device has been silent long enough
     that the data is no longer trustworthy (``MAX_SILENT_POLLS``), so this
     sensor turns off roughly that many poll intervals after the device
-    stopped answering. ``available`` is overridden so the sensor can
-    report "off" while the device's other entities are unavailable.
+    stopped answering. Hard transport errors (timeout/OSError/TypeError)
+    have no such grace period and turn the sensor off on the first failed
+    poll. ``available`` is overridden so the sensor can report "off" while
+    the device's other entities are unavailable.
     """
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
+    def __init__(self, coordinator: MarstekDataUpdateCoordinator) -> None:
         """Initialize the connectivity binary sensor."""
         super().__init__(
             coordinator,

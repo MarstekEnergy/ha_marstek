@@ -17,6 +17,13 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           args: format --check
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install codespell
+        run: python -m pip install codespell
+      - name: Spell check
+        run: codespell custom_components tests README.md
 
   test:
     runs-on: ubuntu-latest
@@ -38,6 +45,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install aiomarstek==0.2.2 voluptuous pyyaml pytest pytest-asyncio pytest-homeassistant-custom-component
+          python -m pip install aiomarstek==0.2.2 voluptuous pyyaml pytest pytest-asyncio pytest-homeassistant-custom-component mypy pytest-cov
       - name: Run tests
-        run: python -m pytest
+        run: python -m pytest --cov=custom_components/marstek --cov-report=term-missing
+      - name: Type check
+        run: python -m mypy

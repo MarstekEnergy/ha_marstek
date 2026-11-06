@@ -3,9 +3,40 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
+# Home Assistant 2026.10 requires Python 3.13, and the test job runs 3.13,
+# so lint for the interpreter the integration actually supports.
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
-ignore = ["E501", "I001"]
+select = [
+  "E", "F", "I", "UP", "B", "C4", "SIM", "RUF",
+  # Bug-prone patterns: blind except (BLE), perf anti-patterns (PERF),
+  # redundant constructs (PIE/FURB), stray print (T20), useless return (RSE)
+  "BLE", "PERF", "PIE", "FURB", "T20", "RSE",
+  # Safety patterns: assert in production code, hardcoded passwords, unsafe
+  # deserialization.
+  "S",
+]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use assert and pseudo-random data on purpose; both rules target
+# production code, where an assert disappears under `python -O`.
+"tests/*" = ["S101", "S311"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["custom_components/marstek"]
+strict = true
+warn_unreachable = true
+
+[tool.codespell]
+# ``hass`` is the Home Assistant abbreviation, not a typo for ``hash``.
+# docs/ holds the vendor's API document verbatim: its own typos are the
+# upstream text and must not be rewritten.
+ignore-words-list = "hass"
+skip = "docs/*"
+
+[tool.coverage.report]
+fail_under = 85

@@ -2,7 +2,7 @@
 
 ​		The Local API is provided “as is” for local use only.Use at your own risk. Marstek is not liable for any damages, data loss, or legal issues caused by your use of the API.You are responsible for lawful and appropriate use.
 
-# **Ⅰ**. Preface**：**
+# **Ⅰ. Preface：**
 
 **Welcome!**
 

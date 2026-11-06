@@ -7,7 +7,6 @@ import logging
 from typing import override
 
 import voluptuous as vol
-
 from aiomarstek import DEFAULT_UDP_PORT, MarstekDeviceInfo
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
@@ -15,6 +14,7 @@ from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_PORT
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -35,7 +35,7 @@ from .helpers import async_create_udp_client
 
 _LOGGER = logging.getLogger(__name__)
 
-# The Open API documents 49152-65535 as the recommended custom port range;
+# The local API documents 49152-65535 as the recommended custom port range;
 # 30000 is the device default. The field is optional and defaults to 30000.
 STEP_MANUAL_DATA_SCHEMA = vol.Schema(
     {
@@ -45,7 +45,7 @@ STEP_MANUAL_DATA_SCHEMA = vol.Schema(
                 min=1,
                 max=65535,
                 step=1,
-                mode="box",
+                mode=NumberSelectorMode.BOX,
                 unit_of_measurement="port",
             )
         ),
@@ -114,7 +114,9 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {"base": self.discovery_error} if self.discovery_error else {}
 
         return self.async_show_form(
-            step_id="discovery_done", data_schema=data_schema, errors=errors
+            step_id="discovery_done",
+            data_schema=data_schema,  # type: ignore[arg-type]
+            errors=errors,
         )
 
     async def _async_step_discover_selected_device(
@@ -138,7 +140,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="discovery_done",
-            data_schema=self._async_build_discovery_schema(self.discovered_devices),
+            data_schema=self._async_build_discovery_schema(self.discovered_devices),  # type: ignore[arg-type]
             errors=errors,
         )
 
@@ -225,7 +227,12 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             host = str(user_input[CONF_HOST])
-            port = int(user_input.get(CONF_PORT, DEFAULT_UDP_PORT))
+            raw_port = user_input.get(CONF_PORT, DEFAULT_UDP_PORT)
+            port = (
+                int(raw_port)
+                if isinstance(raw_port, (int, float))
+                else DEFAULT_UDP_PORT
+            )
             self._async_abort_entries_match({CONF_HOST: host})
 
             try:
@@ -242,7 +249,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="manual",
-            data_schema=STEP_MANUAL_DATA_SCHEMA,
+            data_schema=STEP_MANUAL_DATA_SCHEMA,  # type: ignore[arg-type]
             errors=errors,
         )
 

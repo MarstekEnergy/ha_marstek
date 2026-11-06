@@ -8,14 +8,6 @@
         "default": "mdi:battery-minus"
       }
     },
-    "button": {
-      "factory_reset": {
-        "default": "mdi:restart-alert"
-      },
-      "factory_reset_keep_data": {
-        "default": "mdi:restart"
-      }
-    },
     "number": {
       "dod": {
         "default": "mdi:battery-charging"

@@ -1,0 +1,55 @@
+# Local git hooks for the Marstek integration.
+#
+# Every hook uses `language: system` and calls the tooling already installed in
+# the repository's .venv, so no isolated hook environment has to be created and
+# the checks work offline. The commands mirror .github/workflows/tests.yml, so a
+# commit cannot be green locally and red in CI.
+#
+# Install once per clone:
+#   uv pip install pre-commit   # or: python -m pip install pre-commit
+#   pre-commit install
+#
+# `default_install_hook_types` installs both the fast pre-commit hooks and the
+# slower pre-push suite (the full pytest run).
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: .venv/bin/python -m ruff check --force-exclude
+        language: system
+        types: [python]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: .venv/bin/python -m ruff format --check --force-exclude
+        language: system
+        types: [python]
+        require_serial: true
+
+      - id: mypy
+        name: mypy
+        entry: .venv/bin/python -m mypy
+        language: system
+        types: [python]
+        # mypy needs whole-program information; pyproject pins the file set.
+        pass_filenames: false
+        require_serial: true
+
+      - id: codespell
+        name: codespell
+        entry: .venv/bin/python -m codespell_lib
+        language: system
+        types_or: [python, markdown]
+
+      - id: pytest
+        name: pytest
+        entry: .venv/bin/python -m pytest -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        # The full suite takes ~14s, too slow for every commit but fine to push.
+        stages: [pre-push]

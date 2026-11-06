@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
@@ -29,21 +30,29 @@ def _load_queue_cls():
     return module.DebouncedWriteQueue
 
 
-DebouncedWriteQueue = _load_queue_cls()
+_QueueClass = _load_queue_cls()
+
+# Every queue a test creates, so the autouse fixture below can shut it down.
+# A queue that is never shut down leaves its drain task sleeping when the test
+# ends, which the Home Assistant test fixture reports as a failure.
+_CREATED: list[DebouncedWriteQueue] = []
 
 
-def _load_field_cls():
-    """Import passive_state.py without triggering the marstek package __init__."""
-    spec = importlib.util.spec_from_file_location(
-        "marstek_passive_state", COMPONENT_DIR / "passive_state.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module.PassiveField
+class DebouncedWriteQueue(_QueueClass):  # type: ignore[misc, valid-type]
+    """The real queue, additionally registered for teardown cleanup."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        _CREATED.append(self)
 
 
-PassiveField = _load_field_cls()
+@pytest.fixture(autouse=True)
+async def _shutdown_queues() -> AsyncGenerator[None]:
+    """Stop every queue's drain task before the event loop of the test closes."""
+    yield
+    while _CREATED:
+        await _CREATED.pop().async_shutdown()
+
 
 # A debounce window large enough that several writes can be queued before the
 # drain fires, keeping the tests deterministic without real-time races.
@@ -96,15 +105,15 @@ async def test_distinct_keys_queue_and_run_in_order() -> None:
 async def test_coalesce_moves_entry_to_back() -> None:
     """A superseded same-key write reorders behind intervening distinct writes.
 
-    Request order: mode(AI), LED, mode(Auto). The second mode write supersedes
+    Request order: mode(UPS), LED, mode(Auto). The second mode write supersedes
     the first and moves to the back, so the device receives LED then mode(Auto)
     -- never mode before the LED that was requested in between.
     """
     sent: list[str] = []
     queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
 
-    async def mode_ai() -> None:
-        sent.append("mode:ai")
+    async def mode_ups() -> None:
+        sent.append("mode:ups")
 
     async def led() -> None:
         sent.append("led")
@@ -113,7 +122,7 @@ async def test_coalesce_moves_entry_to_back() -> None:
         sent.append("mode:auto")
 
     await asyncio.gather(
-        queue.async_write("device_mode", mode_ai),
+        queue.async_write("device_mode", mode_ups),
         queue.async_write("led", led),
         queue.async_write("device_mode", mode_auto),
     )
@@ -122,17 +131,17 @@ async def test_coalesce_moves_entry_to_back() -> None:
 
 
 async def test_mode_writes_share_key_so_latest_wins() -> None:
-    """Select AI, then UPS on, then select Auto: only Auto reaches the device.
+    """Select UPS, then UPS on, then select Auto: only Auto reaches the device.
 
-    The mode select, UPS switch and Passive number entities all set the device
-    operating mode and share the "device_mode" coalesce key, so the latest mode
-    request wins instead of an earlier one executing after a later one.
+    The mode select and the ``set_mode`` service both set the device operating
+    mode and share the "device_mode" coalesce key, so the latest mode request
+    wins instead of an earlier one executing after a later one.
     """
     sent: list[str] = []
     queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
 
-    async def mode_ai() -> None:
-        sent.append("mode:ai")
+    async def mode_ups() -> None:
+        sent.append("mode:ups")
 
     async def ups_on() -> None:
         sent.append("ups:on")
@@ -141,12 +150,42 @@ async def test_mode_writes_share_key_so_latest_wins() -> None:
         sent.append("mode:auto")
 
     await asyncio.gather(
-        queue.async_write("device_mode", mode_ai),
+        queue.async_write("device_mode", mode_ups),
         queue.async_write("device_mode", ups_on),
         queue.async_write("device_mode", mode_auto),
     )
 
     assert sent == ["mode:auto"]
+
+
+async def test_dod_write_not_coalesced_by_mode_switch() -> None:
+    """A DOD write and a mode switch use different keys and queue in order.
+
+    They change different device state, so a later mode switch must not
+    coalesce away a queued DOD write (which would report it as done without it
+    ever reaching the device).
+    """
+    sent: list[str] = []
+    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
+
+    async def dod() -> None:
+        sent.append("dod")
+
+    async def auto() -> None:
+        sent.append("auto")
+
+    await asyncio.gather(
+        queue.async_write("dod", dod),
+        queue.async_write("device_mode", auto),
+    )
+    assert sent == ["dod", "auto"]
+
+    sent.clear()
+    await asyncio.gather(
+        queue.async_write("device_mode", auto),
+        queue.async_write("dod", dod),
+    )
+    assert sent == ["auto", "dod"]
 
 
 async def test_failed_write_does_not_block_queue() -> None:
@@ -280,132 +319,6 @@ async def test_shutdown_cancels_running_action() -> None:
     assert cancelled.is_set()
 
 
-async def test_reopen_accepts_writes_again() -> None:
-    """A queue reopened after a failed unload accepts new writes."""
-    sent: list[str] = []
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-    await queue.async_shutdown()
-
-    async def write() -> None:
-        sent.append("write")
-
-    with pytest.raises(RuntimeError, match="shut down"):
-        await queue.async_write("led", write)
-
-    queue.reopen()
-    await queue.async_write("led", write)
-
-    assert sent == ["write"]
-
-
-async def test_factory_reset_variants_queue_in_arrival_order() -> None:
-    """The two factory-reset options keep distinct keys and run FIFO.
-
-    A keep-data reset and a clearing reset are different device operations,
-    so whichever is requested later runs later instead of an earlier queued
-    reset pre-empting it. This covers both the entity-then-service and
-    service-then-entity orderings.
-    """
-    sent: list[str] = []
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-
-    async def clear() -> None:
-        sent.append("clear")
-
-    async def keep() -> None:
-        sent.append("keep")
-
-    # Entity press first (clear), then service call (keep): keep wins.
-    await asyncio.gather(
-        queue.async_write("factory_reset", clear),
-        queue.async_write("factory_reset_keep_data", keep),
-    )
-    assert sent == ["clear", "keep"]
-
-    # Reverse: service call (keep) first, then entity press (clear).
-    sent.clear()
-    await asyncio.gather(
-        queue.async_write("factory_reset_keep_data", keep),
-        queue.async_write("factory_reset", clear),
-    )
-    assert sent == ["keep", "clear"]
-
-
-async def test_passive_write_not_coalesced_by_mode_switch() -> None:
-    """A Passive write and a plain mode switch use different keys and queue.
-
-    Setting Passive power then switching to Auto must send both (Passive
-    first, then Auto); if they shared a key the Passive write would be
-    coalesced away and reported as done without reaching the device.
-    """
-    sent: list[str] = []
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-
-    async def passive() -> None:
-        sent.append("passive")
-
-    async def auto() -> None:
-        sent.append("auto")
-
-    await asyncio.gather(
-        queue.async_write("passive", passive),
-        queue.async_write("device_mode", auto),
-    )
-    assert sent == ["passive", "auto"]
-
-    sent.clear()
-    await asyncio.gather(
-        queue.async_write("device_mode", auto),
-        queue.async_write("passive", passive),
-    )
-    assert sent == ["auto", "passive"]
-
-
-async def test_cancelled_passive_write_rolls_back_before_sibling_write() -> None:
-    """A cancelled Passive power write must not leak into a later cooldown write.
-
-    Mirrors MarstekPassivePowerNumber.async_set_native_value: the field's
-    pending target is rolled back when the write is cancelled, so a later
-    cooldown write re-sends Passive using the last *confirmed* power, not the
-    phantom value that never reached the device.
-    """
-    power = PassiveField()
-    cd_time = PassiveField()
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-    sent: list[tuple[int, int]] = []
-
-    async def send_passive() -> None:
-        # The config is built from the fields' current values, like
-        # number.py._send_passive.
-        sent.append((power.value or 0, cd_time.value or 0))
-
-    async def set_power(value: int) -> None:
-        power.start_write(value)
-        try:
-            await queue.async_write("passive", send_passive)
-        except asyncio.CancelledError:
-            power.rollback(value)
-            raise
-        else:
-            power.mark_written(value)
-
-    # A power write is queued but cancelled before it drains.
-    task = asyncio.create_task(set_power(1000))
-    await asyncio.sleep(_DEBOUNCE / 2)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    # The cancelled write never ran; the field reverted to unconfirmed.
-    assert power.value is None
-
-    # A later cooldown write must not resurrect the phantom 1000 W.
-    cd_time.start_write(300)
-    await queue.async_write("passive", send_passive)
-
-    assert sent == [(0, 300)]
-
-
 async def test_cancel_after_start_reports_success_not_cancelled() -> None:
     """A caller cancelled after the write started gets the real outcome.
 
@@ -460,143 +373,6 @@ async def test_cancel_after_start_reports_real_failure() -> None:
         await task
 
 
-async def test_cancel_after_start_does_not_roll_back_field() -> None:
-    """A number entity cancelled after the write started must not roll back.
-
-    The write is in flight and may succeed; rolling back would leave the field
-    pointing at a stale value, so a later sibling write re-sends it. The queue
-    reports the real outcome, so the entity's CancelledError branch (rollback)
-    only runs for a write that was still queued and never sent.
-    """
-    power = PassiveField()
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-    started = asyncio.Event()
-    release = asyncio.Event()
-    sent: list[int] = []
-
-    async def send_power() -> None:
-        started.set()
-        await release.wait()
-        sent.append(power.value or 0)
-
-    async def set_power(value: int) -> None:
-        power.start_write(value)
-        try:
-            await queue.async_write("passive", send_power)
-        except asyncio.CancelledError:
-            power.rollback(value)
-            raise
-        else:
-            power.mark_written(value)
-
-    # A confirmed power of 800 exists from a prior successful write.
-    power.start_write(800)
-    power.mark_written(800)
-
-    # Change power to 500; the write starts on the device.
-    task = asyncio.create_task(set_power(500))
-    await started.wait()
-    task.cancel()  # cancel the caller while the write is in flight
-    release.set()  # let the write succeed
-
-    await task  # told success, not CancelledError
-
-    # The field was confirmed (not rolled back to 800).
-    assert power.value == 500
-    assert sent == [500]
-
-
-async def test_passive_service_updates_fields_so_number_preserves_them() -> None:
-    """A Passive service write updates both fields so a number write preserves them.
-
-    The service sets power=800, cd_time=300. Before the write drains, a number
-    entity changes power to 500. The number's surviving write must send 500 W
-    with the service's 300 s cooldown, not 0 s -- the service's start_write on
-    cd_time is what makes the number's _send_passive pick up 300. Without it
-    (the bug) the number would send 500 W / 0 s and the service's 300 s would
-    be lost.
-    """
-    power = PassiveField()
-    cd_time = PassiveField()
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-    sent: list[tuple[int, int]] = []
-
-    async def send_passive() -> None:
-        sent.append((power.value or 0, cd_time.value or 0))
-
-    # The service writes both fields (mirrors _async_apply_passive).
-    power.start_write(800)
-    cd_time.start_write(300)
-
-    async def service_write() -> None:
-        try:
-            await queue.async_write("passive", send_passive)
-        except asyncio.CancelledError:
-            power.rollback(800)
-            cd_time.rollback(300)
-            raise
-        else:
-            power.mark_written(800)
-            cd_time.mark_written(300)
-
-    service_task = asyncio.create_task(service_write())
-
-    # A number entity changes power right after, superseding the service write.
-    power.start_write(500)
-
-    async def number_write() -> None:
-        try:
-            await queue.async_write("passive", send_passive)
-        except asyncio.CancelledError:
-            power.rollback(500)
-            raise
-        else:
-            power.mark_written(500)
-
-    await number_write()
-    await service_task  # coalesced; reports the surviving write's success
-
-    # Only the number's write ran; it preserved the service's 300 s cooldown.
-    assert sent == [(500, 300)]
-    # The service's mark_written confirmed the cd_time it carried.
-    assert power.value == 500
-    assert cd_time.value == 300
-
-
-async def test_passive_service_failure_rolls_back_both_fields() -> None:
-    """A failed Passive service write rolls back both fields.
-
-    The surviving write fails, so neither the service's power nor its cd_time
-    reached the device. Both fields revert to their last confirmed values, and
-    the service surfaces the combined failure.
-    """
-    power = PassiveField()
-    cd_time = PassiveField()
-    queue = DebouncedWriteQueue(_DEBOUNCE, _noop_refresh)
-    sent: list[tuple[int, int]] = []
-
-    async def send_passive() -> None:
-        sent.append((power.value or 0, cd_time.value or 0))
-        raise RuntimeError("device said no")
-
-    power.start_write(800)
-    cd_time.start_write(300)
-
-    try:
-        await queue.async_write("passive", send_passive)
-    except RuntimeError:
-        power.rollback(800)
-        cd_time.rollback(300)
-    else:
-        power.mark_written(800)
-        cd_time.mark_written(300)
-
-    # The write ran but failed; both fields reverted to unconfirmed.
-    assert sent == [(800, 300)]
-    assert power.value is None
-    assert cd_time.value is None
-
-
 async def test_cancel_superseded_does_not_await_unrelated_inflight() -> None:
     """A superseded write cancelled while an *earlier* same-key write is in
     flight must not adopt that earlier write's outcome.
@@ -624,13 +400,13 @@ async def test_cancel_superseded_does_not_await_unrelated_inflight() -> None:
         sent.append("C")
 
     # A queues and starts executing (in flight on the device).
-    task_a = asyncio.create_task(queue.async_write("passive", action_a))
+    task_a = asyncio.create_task(queue.async_write("dod", action_a))
     await a_started.wait()
 
     # B queues (same key, a fresh _pending entry since A already left it).
-    task_b = asyncio.create_task(queue.async_write("passive", action_b))
+    task_b = asyncio.create_task(queue.async_write("dod", action_b))
     # C supersedes B (same key, not yet drained).
-    task_c = asyncio.create_task(queue.async_write("passive", action_c))
+    task_c = asyncio.create_task(queue.async_write("dod", action_c))
     await asyncio.sleep(0)  # let B and C settle into the queue
 
     # Cancel B while A is still in flight and C is still queued.

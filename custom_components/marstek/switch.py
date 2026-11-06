@@ -1,18 +1,19 @@
 """Switch platform for Marstek devices."""
 
-from typing import override
+from typing import Any, override
 
-from aiomarstek import MarstekModeConfig, MarstekSetError
+from aiomarstek import MarstekSetError
 from homeassistant.components.switch import (
     SwitchEntity,
     SwitchEntityDescription,
 )
+from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import MarstekConfigEntry
-from .entity import MarstekEntity
+from .coordinator import MarstekConfigEntry, MarstekDataUpdateCoordinator
+from .entity import MarstekAssumedStateEntity, MarstekEntity
 
 
 async def async_setup_entry(
@@ -23,14 +24,7 @@ async def async_setup_entry(
     """Set up Marstek switch entities."""
     coordinator = entry.runtime_data
     async_add_entities(
-        [
-            MarstekBluetoothSwitch(coordinator),
-            MarstekLedSwitch(coordinator),
-            # The UPS switch is hidden: UPS is already an option in the
-            # operating-mode select, and the switch's "off" action
-            # (ups_enabled=False) has no documented use case.
-            # MarstekUpsSwitch(coordinator),
-        ]
+        [MarstekBluetoothSwitch(coordinator), MarstekLedSwitch(coordinator)]
     )
 
 
@@ -40,68 +34,82 @@ class MarstekSwitch(MarstekEntity, SwitchEntity):
     entity_description: SwitchEntityDescription
 
 
-class MarstekBluetoothSwitch(MarstekSwitch):
-    """Bluetooth advertising lock switch.
+class MarstekBluetoothSwitch(MarstekSwitch, MarstekAssumedStateEntity):
+    """Bluetooth lock switch.
 
-    The Open API reports only the Bluetooth connection state, not the
-    advertising lock flag, so this switch is write-only: its state stays
-    unknown until it is toggled.
+    On locks Bluetooth, which stops advertising; off unlocks it and resumes
+    advertising. Ble.Adv's ``enable`` parameter describes advertising, so the
+    lock is its inverse: locked sends ``enable=0`` and unlocked sends
+    ``enable=1``. BLE.GetStatus only reports the connection state, not the
+    lock flag, so the position shown is the last one Home Assistant wrote.
     """
 
-    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
+    def __init__(self, coordinator: MarstekDataUpdateCoordinator) -> None:
         """Initialize the Bluetooth switch."""
         super().__init__(
             coordinator,
             SwitchEntityDescription(
                 key="bluetooth_advertising",
                 translation_key="bluetooth_advertising",
-                name="Bluetooth advertising",
+                name="Bluetooth lock",
                 icon="mdi:bluetooth",
             ),
         )
 
-    @property
     @override
-    def is_on(self) -> bool | None:
-        """Bluetooth advertising state is write-only until firmware reports it."""
-        return None
+    def _apply_assumed_value(self, value: Any) -> None:
+        """Show a toggle position."""
+        self._attr_is_on = value
 
     @override
-    async def async_turn_on(self) -> None:
-        """Turn Bluetooth advertising on."""
-        await self._set_advertising(True)
+    def _async_restore_assumed_state(self, value: str) -> bool | None:
+        """Adopt a restored toggle state, ignoring anything else."""
+        if value not in (STATE_ON, STATE_OFF):
+            return None
+        enabled = value == STATE_ON
+        self._attr_is_on = enabled
+        return enabled
 
     @override
-    async def async_turn_off(self) -> None:
-        """Turn Bluetooth advertising off."""
-        await self._set_advertising(False)
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Lock Bluetooth, stopping advertising."""
+        await self._set_lock(True)
 
-    async def _set_advertising(self, enabled: bool) -> None:
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Unlock Bluetooth, resuming advertising."""
+        await self._set_lock(False)
+
+    async def _set_lock(self, locked: bool) -> None:
         coordinator = self.coordinator
         try:
-            await coordinator.async_write(
-                "bluetooth",
-                lambda: coordinator.udp_client.set_bluetooth_advertising(
-                    coordinator.device_ip, enabled, port=coordinator.device_port
+            await self.async_assume_value(
+                locked,
+                lambda: coordinator.async_write(
+                    "bluetooth",
+                    lambda: coordinator.udp_client.set_bluetooth_advertising(
+                        # Ble.Adv's ``enable`` describes advertising, so the
+                        # lock is its inverse: locked sends 0.
+                        coordinator.device_ip,
+                        not locked,
+                        port=coordinator.device_port,
+                    ),
                 ),
             )
         except MarstekSetError as err:
             raise HomeAssistantError(
-                f"Toggling Bluetooth advertising failed: {err.reason}"
+                f"Toggling the Bluetooth lock failed: {err.reason}"
             ) from err
-        self._notify_success(
-            f"Bluetooth advertising {'enabled' if enabled else 'disabled'}"
-        )
 
 
-class MarstekLedSwitch(MarstekSwitch):
+class MarstekLedSwitch(MarstekSwitch, MarstekAssumedStateEntity):
     """Front-panel LED switch.
 
-    The Open API does not report the current LED state, so this switch
-    is write-only: its state stays unknown until it is toggled.
+    The local API does not report the current LED state, so the position shown
+    is the last one Home Assistant wrote.
     """
 
-    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
+    def __init__(self, coordinator: MarstekDataUpdateCoordinator) -> None:
         """Initialize the LED switch."""
         super().__init__(
             coordinator,
@@ -113,84 +121,43 @@ class MarstekLedSwitch(MarstekSwitch):
             ),
         )
 
-    @property
     @override
-    def is_on(self) -> bool | None:
-        """LED state is write-only until firmware reports it."""
-        return None
+    def _apply_assumed_value(self, value: Any) -> None:
+        """Show a toggle position."""
+        self._attr_is_on = value
 
     @override
-    async def async_turn_on(self) -> None:
+    def _async_restore_assumed_state(self, value: str) -> bool | None:
+        """Adopt a restored toggle state, ignoring anything else."""
+        if value not in (STATE_ON, STATE_OFF):
+            return None
+        enabled = value == STATE_ON
+        self._attr_is_on = enabled
+        return enabled
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the LED on."""
         await self._set_led(True)
 
     @override
-    async def async_turn_off(self) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the LED off."""
         await self._set_led(False)
 
     async def _set_led(self, on: bool) -> None:
         coordinator = self.coordinator
         try:
-            await coordinator.async_write(
-                "led",
-                lambda: coordinator.udp_client.set_led(
-                    coordinator.device_ip, on, port=coordinator.device_port
+            await self.async_assume_value(
+                on,
+                lambda: coordinator.async_write(
+                    "led",
+                    lambda: coordinator.udp_client.set_led(
+                        coordinator.device_ip, on, port=coordinator.device_port
+                    ),
                 ),
             )
         except MarstekSetError as err:
             raise HomeAssistantError(
                 f"Toggling the front-panel LED failed: {err.reason}"
             ) from err
-        self._notify_success(f"Front-panel LED {'enabled' if on else 'disabled'}")
-
-
-class MarstekUpsSwitch(MarstekSwitch):
-    """UPS-mode enable switch.
-
-    The Open API does not report the current UPS-enable flag, so this
-    switch is write-only: toggling it engages UPS mode with the flag set,
-    and its state stays unknown otherwise.
-    """
-
-    def __init__(self, coordinator: MarstekConfigEntry.runtime_data) -> None:
-        """Initialize the UPS switch."""
-        super().__init__(
-            coordinator,
-            SwitchEntityDescription(
-                key="ups",
-                translation_key="ups",
-                name="UPS mode",
-                icon="mdi:ups",
-            ),
-        )
-
-    @property
-    @override
-    def is_on(self) -> bool | None:
-        """UPS-enable state is write-only until firmware reports it."""
-        return None
-
-    @override
-    async def async_turn_on(self) -> None:
-        """Engage UPS mode with the UPS flag enabled."""
-        await self._set_ups(True)
-
-    @override
-    async def async_turn_off(self) -> None:
-        """Engage UPS mode with the UPS flag disabled."""
-        await self._set_ups(False)
-
-    async def _set_ups(self, enabled: bool) -> None:
-        coordinator = self.coordinator
-        config = MarstekModeConfig(mode="ups", ups_enabled=enabled)
-        try:
-            await coordinator.async_write(
-                "device_mode",
-                lambda: coordinator.udp_client.set_device_mode(
-                    coordinator.device_ip, config, port=coordinator.device_port
-                ),
-            )
-        except MarstekSetError as err:
-            raise HomeAssistantError(f"Toggling UPS mode failed: {err.reason}") from err
-        self._notify_success(f"UPS mode {'enabled' if enabled else 'disabled'}")

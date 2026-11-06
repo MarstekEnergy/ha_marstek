@@ -6,39 +6,40 @@ A [Home Assistant](https://www.home-assistant.io) integration for [Marstek Energ
 
 ## Supported devices
 
-- Venus E / Venus E 3.0 (VNSE3-0)
+- Venus E 3.0 (VNSE3-0)
 - Venus A (VNSA-0)
 - Venus D (VNSD-0)
+
 
 ## Features
 
 ### Monitoring (sensors)
 
-- Battery level, power, charge/discharge status and remaining/rated capacity
-- Device operating mode (Auto / AI / Manual / Passive / UPS)
-- Grid input/output power, off-grid power, total power and CT phase powers (A/B/C)
-- Battery temperature
+- SOC, Battery power, Battery charge/discharge status and remaining/rated capacity, Battery temperature
+- Operating mode (Auto/ AI / Manual /  Passive / UPS)
+- Grid power, off-grid power and CT phase powers (A/B/C)
 - Charge and discharge permission flags; device connectivity status
 - WiFi signal strength, SSID and IP address (diagnostic, disabled by default)
 - Per-input PV power, voltage, current and state (Venus A/D)
-- Lifetime energy counters (PV, grid input/output, CT input/output, load)
+- Lifetime energy counters (PV, grid charge/discharge, load)
 
 ### Control
 
-- Switch between operating modes. The select entity offers Auto, AI, Manual
-  and UPS. Manual switches the device into Manual mode; configure the time
-  slots in the Marstek app (HA shows a reminder). Passive (with power/countdown)
-  is set via the `set_mode` service.
-- Discharge depth (DOD) number entity (30–88 %)
-- Max charge/discharge power version select entity, options narrowed to
-  the versions documented for your device model
-- Bluetooth advertising lock switch
-- Front-panel LED switch
-- Factory reset buttons: one clears accumulated data, one preserves it
+- Switch the operating mode between Auto and UPS.
+- Set the discharge depth (DOD), 30–88 %.
+- Set the maximum grid charge/discharge power version.
+- Bluetooth lock switch.
+- Front-panel LED switch.
 
 All communication stays on your local network; no cloud account is required.
 
 ## Prerequisites
+
+Home Assistant **2026.10** or newer is required. This is the same minimum
+`hacs.json` declares, so HACS refuses to install on an older version. The
+integration imports `homeassistant.helpers.target.TargetSelection` (added in
+2026.1) and the `binary_sensor` constant module (added in 2026.10); older
+releases fail to load the integration at all.
 
 1. Your Marstek device is connected to the same LAN as Home Assistant.
 2. The **local API** feature is enabled in the Marstek mobile app.
@@ -49,10 +50,12 @@ All communication stays on your local network; no cloud account is required.
 
 ### HACS (recommended)
 
-1. Add this repository to HACS as a custom repository
-   (category: *Integration*).
-2. Install **Marstek** from HACS.
-3. Restart Home Assistant.
+1. Open HACS and search for **Marstek** under *Integrations*.
+2. Install it and restart Home Assistant.
+
+If **Marstek** does not show up in the HACS search yet (for example on an
+older HACS data set), add this repository to HACS as a custom repository
+(category: *Integration*), then install **Marstek** from there.
 
 ### Manual
 
@@ -78,56 +81,12 @@ select multiple entities, areas or devices at once.
 
 | Service | Description |
 | --- | --- |
-| `marstek.set_mode` | Switch the operating mode (Auto/AI/Manual/Passive/UPS) |
+| `marstek.set_mode` | Switch the operating mode (Auto/UPS) |
 | `marstek.set_dod` | Set the discharge depth (30–88) |
 | `marstek.set_power_version` | Set the max charge/discharge power version |
-| `marstek.set_manual_schedule` | Replace the device's Manual-mode time schedule |
-| `marstek.factory_reset` | Reset the device to factory settings (optionally keep accumulated data) |
 
-Most actions are also available as regular entities (select, number, switch,
-button) so they can be used in automations and dashboards.
-
-### Manual mode
-
-Switching to Manual mode from HA only tells the device to enter Manual mode;
-the actual time slots are configured in the **Marstek mobile app**. Picking
-Manual in the operating-mode select shows a reminder to set up the slots in
-the app, and there are no per-slot entities on the HA device page.
-
-> **Experimental — writing the schedule from HA.** The integration also
-> exposes services that write the Manual schedule directly, but the
-> [local API document (Rev3.1.2)](<docs/Marstek Device Local API_EN (Rev3.1.2).pdf>)
-> shows a single slot as an *object* while the firmware's accepted shape
-> (object vs array) has not been confirmed on a live device. Prefer the app,
-> and treat these services as experimental until verified.
-
-- `marstek.set_manual_schedule` — replace the whole schedule with a friendly
-  list of slots (`start_time`, `end_time`, `days` as `mon`..`sun`, `power`;
-  optional `enable`, `manual_set`, `time_num` which defaults to the slot's
-  position).
-- `marstek.set_mode` with `mode: manual` and `config.manual_cfg` — send the
-  raw local API schedule; each slot needs `time_num`, `start_time`,
-  `end_time`, `week_set` (bitmask, bit0 = Monday), `power` and `enable`.
-
-```yaml
-action: marstek.set_manual_schedule
-target:
-  entity_id: select.marstek_operating_mode
-data:
-  slots:
-    - start_time: "00:00"
-      end_time: "06:00"
-      days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-      power: 100
-    - start_time: "18:00"
-      end_time: "23:00"
-      days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-      power: 250
-```
-
-> `set_mode` only updates the slots you provide and does **not** clear other
-> slots already programmed on the device; `set_manual_schedule` replaces the
-> whole schedule. Manual mode supports up to 10 time slots.
+Most actions are also available as regular entities (select, number, switch)
+so they can be used in automations and dashboards.
 
 ## Security considerations
 
@@ -135,7 +94,7 @@ The Marstek local API is an unauthenticated local UDP protocol: a command packet
 carries only `id`, `method` and `params` — no token, nonce or signature. Until
 the device protocol or firmware documentation confirms an authentication
 mechanism, assume **any host that can reach the device's UDP port can send it
-control commands**, including mode changes, power limits and factory reset.
+control commands**, including mode changes and power limits.
 
 - Do not port-forward the device's UDP port (default `30000`) to the internet,
   and do not expose it through a VPN or proxy reachable by untrusted clients.
@@ -173,13 +132,7 @@ so the downloaded file is safe to attach to a bug report.
 ## Known limitations
 
 - Enabling the local API in the Marstek app may disable some built-in app features to avoid command conflicts.
-
-- **Factory reset is never retried.** If the device does not answer, the button
-  or service reports a failure even when the reset actually ran and the device
-  was already rebooting. Treat a failed reset as "outcome unknown" and check the
-  device before pressing again — a second attempt resets it again.
-
-- Manual mode supports up to 10 time slots and is experimental (see above).
+- The operating mode can only be set to Auto or UPS. AI, Manual schedules and Passive mode are configured in the Marstek app and are read-only here.
 
 ## Acknowledgements
 

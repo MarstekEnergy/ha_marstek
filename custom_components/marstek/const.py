@@ -2,7 +2,19 @@
 
 from typing import Final
 
-from aiomarstek import DEFAULT_UDP_PORT  # noqa: F401  re-exported for config flow
+# Re-exported from the library: the DOD bounds feed the number entity so its
+# limits cannot drift apart from the library's own DOD.SET validation. The
+# port default is re-exported for external callers; the config flow and the
+# coordinator import it from ``aiomarstek`` directly.
+from aiomarstek import (
+    DEFAULT_UDP_PORT as DEFAULT_UDP_PORT,
+)
+from aiomarstek import (
+    DOD_MAX as DOD_MAX,
+)
+from aiomarstek import (
+    DOD_MIN as DOD_MIN,
+)
 
 DOMAIN: Final = "marstek"
 
@@ -14,7 +26,7 @@ CONF_WIFI_MAC: Final = "wifi_mac"
 CONF_WIFI_NAME: Final = "wifi_name"
 
 # All device type strings the firmware may report for a supported model.
-# The Open API example returns "VenusC"; older firmware uses the VNS* codes.
+# The local API example returns "VenusC"; older firmware uses the VNS* codes.
 SUPPORTED_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
     {
         # Venus E / Venus E 3.0
@@ -32,9 +44,9 @@ SUPPORTED_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
         "VenusD",
         "Venus D",
         # Venus C and Venus E mini are intentionally excluded: their feature
-        # sets differ (the mini has no PV inputs and fewer manual slots; the
-        # C series power versions are unconfirmed) and they will be added once
-        # verified on real hardware.
+        # sets differ from the supported models (the C series power versions
+        # are unconfirmed) and they will be added once verified on real
+        # hardware.
     }
 )
 
@@ -45,17 +57,17 @@ PV_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
 
 PV_STATE_OPTIONS: Final = ("standby", "working")
 DEVICE_MODE_OPTIONS: Final = ("auto", "ai", "manual", "passive", "ups")
-# Modes offered in the operating-mode select. Manual is included so the user
-# can switch into it from HA; the time-slot schedule is then configured in the
-# Marstek app (a notification reminds them). Passive still needs power/cd_time
-# parameters and is set via the set_mode service.
-SELECTABLE_MODE_OPTIONS: Final = ("auto", "ai", "manual", "ups")
+# Modes offered in the operating-mode select. Manual is not offered: switching
+# to it requires a time-slot schedule whose payload shape is not confirmed on
+# real hardware yet, so manual schedules are configured in the Marstek app.
+# AI is not offered either -- like Manual and Passive it is configured in the
+# Marstek app. None of the three are written from Home Assistant at all, but
+# all of them can still be read from the device (see DEVICE_MODE_OPTIONS).
+SELECTABLE_MODE_OPTIONS: Final = ("auto", "ups")
 BATTERY_STATUS_OPTIONS: Final = ("selling", "charging", "idle")
 BLE_STATE_OPTIONS: Final = ("connect", "disconnect")
 
-# Discharge depth bounds exposed by the DOD.SET command.
-DOD_MIN: Final = 30
-DOD_MAX: Final = 88
+# DOD_MIN / DOD_MAX (30-88 %) are imported from aiomarstek above.
 
 # Power versions exposed by the Set.Ver command, in watts.
 POWER_VERSION_OPTIONS: Final = (800, 1200, 1500, 2200, 2500)
@@ -96,13 +108,3 @@ def power_versions_for(device_type: str) -> tuple[int, ...]:
 # this window is sent, so back-and-forth toggling fires one command, not
 # every intermediate one.
 WRITE_DEBOUNCE_DELAY: Final = 0.4
-
-# Service names exposed by the integration.
-SERVICE_SET_MODE: Final = "set_mode"
-SERVICE_SET_DOD: Final = "set_dod"
-SERVICE_SET_POWER_VERSION: Final = "set_power_version"
-SERVICE_FACTORY_RESET: Final = "factory_reset"
-
-ATTR_CONFIG: Final = "config"
-ATTR_KEEP_ACCUMULATED_DATA: Final = "keep_accumulated_data"
-ATTR_POWER_VERSION: Final = "power_version"

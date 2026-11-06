@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from datetime import timedelta
-from typing import TypeAlias, override
+from typing import TYPE_CHECKING, Any, override
 
 from aiomarstek import (
     DEFAULT_UDP_PORT,
@@ -16,7 +16,7 @@ from aiomarstek import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util.hass_dict import HassKey
@@ -28,16 +28,19 @@ from .const import (
     SUPPORTED_DEVICE_TYPES,
     WRITE_DEBOUNCE_DELAY,
 )
-from .passive_state import PassiveField
 from .write_queue import DebouncedWriteQueue
+
+if TYPE_CHECKING:
+    from .entity import MarstekAssumedStateEntity
 
 _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(seconds=30)
 
-# Polls a device may stay fully silent before its entities are marked
-# unavailable. Below this threshold the last reading is kept so a single
-# glitch does not flip the entities; above it a real outage surfaces.
+# Consecutive fully silent polls tolerated before the entities are marked
+# unavailable. The first MAX_SILENT_POLLS - 1 silent polls keep the last
+# reading so a single glitch does not flip the entities; the MAX_SILENT_POLLS-th
+# one raises UpdateFailed so a real outage surfaces.
 MAX_SILENT_POLLS = 3
 
 MARSTEK_UDP_CLIENT: HassKey[MarstekUDPClient] = HassKey(DOMAIN)
@@ -57,28 +60,23 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
     ) -> None:
         """Initialize the coordinator."""
         self.device_ip = config_entry.data[CONF_HOST]
-        # The device UDP port is configurable per device; the Open API
+        # The device UDP port is configurable per device; the local API
         # documents 49152-65535 as the recommended custom range. The shared
         # client listens on a fixed local port, so only the target port here
         # changes between devices.
         self.device_port = config_entry.data.get(CONF_PORT, DEFAULT_UDP_PORT)
         self.udp_client = udp_client
         self._silent_polls = 0
-        # Last-written Passive-mode parameters. The Open API does not report
-        # them, so the passive number entities are write-only; these hold the
-        # most recent value written from HA so setting one field can re-send
-        # Passive mode preserving the other instead of clobbering it to 0.
-        # Each field tracks a pending target and the last device-confirmed
-        # value separately so a failed/coalesced write rolls back to the last
-        # confirmed value instead of an intermediate one (see passive_state).
-        self.passive_power = PassiveField()
-        self.passive_cd_time = PassiveField()
-        # Writes go through the shared debounce queue, which coalesces
-        # same-control repeats and keeps distinct controls queued; see
-        # write_queue.DebouncedWriteQueue for the ordering rules.
+        # All writes go through one debounce queue; see write_queue for the
+        # coalescing, ordering and cancellation rules.
         self._write_queue = DebouncedWriteQueue(
             WRITE_DEBOUNCE_DELAY, self.async_request_refresh
         )
+        # Write-only controls keyed by their entity key. Service calls write
+        # through the coordinator rather than through the entity, and the
+        # device never reports these settings back, so the entity has to be
+        # told which value a confirmed service write produced.
+        self._assumed_entities: dict[str, MarstekAssumedStateEntity] = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -206,45 +204,75 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         return data
 
     async def async_write(
-        self, key: str, action: Callable[[], Awaitable[None]]
-    ) -> None:
-        """Run a write command, coalescing only same-control repeats.
+        self, key: str, action: Callable[[], Coroutine[Any, Any, None]]
+    ) -> bool:
+        """Queue a write on this device's debounce queue.
 
-        Rapid writes to the *same* control item (e.g. toggling one switch
-        back and forth) collapse within the debounce window so only the
-        latest value is sent; a superseded repeat resolves with the
-        surviving write's outcome (success *or* failure), because only that
-        write reaches the device. Writes to *different* control items do not
-        replace each other: they queue and execute one per debounce window,
-        so a mode change, LED toggle or factory reset is never silently
-        dropped behind another control's write. A single refresh follows
-        each executed write.
+        ``key`` identifies the *device state* being changed, not the entity:
+        controls that write the same state share one key so the latest request
+        wins, and unrelated controls keep separate keys so one is never
+        coalesced away behind another. Ordering, coalescing and cancellation
+        are the queue's (see :mod:`.write_queue`); one refresh follows each
+        executed write.
 
-        ``key`` identifies the *device state* being changed, not the
-        entity: the mode select and the UPS switch share one
-        ``"device_mode"`` key so the latest plain mode request wins, while
-        the Passive number entities and the Passive ``set_mode`` service
-        share a separate ``"passive"`` key so a plain mode switch never
-        coalesces away their power/cooldown parameters.
+        Returns ``True`` when this action ran on the device, ``False`` when a
+        later same-key write superseded it; callers that record the written
+        value must check it, or a coalesced call would claim a value that never
+        left the queue.
         """
-        await self._write_queue.async_write(key, action)
+        return await self._write_queue.async_write(key, action)
 
+    @callback
+    def async_register_assumed_entity(
+        self, key: str, entity: MarstekAssumedStateEntity
+    ) -> None:
+        """Track a write-only control so confirmed writes can reach it."""
+        self._assumed_entities[key] = entity
+
+    @callback
+    def async_unregister_assumed_entity(
+        self, key: str, entity: MarstekAssumedStateEntity
+    ) -> None:
+        """Stop tracking a control that is being removed."""
+        if self._assumed_entities.get(key) is entity:
+            del self._assumed_entities[key]
+
+    @callback
+    def async_reserve_assumed_write(self, key: str) -> int:
+        """Claim the display generation for a service write about to be queued.
+
+        Returns the token the caller hands back to
+        :meth:`async_note_assumed_write` once the device confirms, or ``0`` when
+        no write-only control shows this key (the mode select reads the mode
+        back from the device instead). The token must be taken *before* the
+        write is queued, so it orders the request against entity clicks and
+        other service calls by arrival rather than by confirmation order.
+        """
+        entity = self._assumed_entities.get(key)
+        return 0 if entity is None else entity.async_reserve_write()
+
+    @callback
+    def async_note_assumed_write(self, key: str, value: Any, generation: int) -> None:
+        """Tell the matching write-only control that a service write was confirmed.
+
+        ``generation`` is the token reserved before queueing; the control uses
+        it to keep a newer click on screen (see
+        :meth:`MarstekAssumedStateEntity.async_note_confirmed_value`).
+        """
+        if (entity := self._assumed_entities.get(key)) is not None:
+            entity.async_note_confirmed_value(value, generation)
+
+    @override
     async def async_shutdown(self) -> None:
-        """Stop the debounced write queue before the entry unloads.
+        """Stop the write queue and the coordinator's own timers on unload.
 
         Cancels any queued write and the background drain task so a pending
-        command cannot fire (and refresh) after the integration is gone.
+        command cannot fire (and refresh) after the integration is gone, then
+        lets the base class cancel the scheduled/debounced refresh -- otherwise
+        a queued refresh could still poll the device after the entry unloaded.
         """
         await self._write_queue.async_shutdown()
-
-    def reopen_write_queue(self) -> None:
-        """Reopen the write queue after a config entry unload failed.
-
-        The platforms stay loaded when unloading fails, so writes must work
-        again. Only the closed flag is reset; writes queued at shutdown time
-        were already cancelled and are not restored.
-        """
-        self._write_queue.reopen()
+        await super().async_shutdown()
 
 
-MarstekConfigEntry: TypeAlias = ConfigEntry[MarstekDataUpdateCoordinator]
+type MarstekConfigEntry = ConfigEntry[MarstekDataUpdateCoordinator]

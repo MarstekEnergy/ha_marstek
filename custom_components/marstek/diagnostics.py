@@ -12,7 +12,8 @@ MarstekDeviceInfo and MarstekDeviceStatus are frozen, slotted dataclasses,
 so they are serialized with dataclasses.asdict before redaction. The status
 payload holds only measurements (battery, power, PV, temperatures) and is not
 sensitive; only the network/hardware identifiers carried by the config
-entry, device info and the wifi_* status fields are redacted.
+entry, device info and the wifi_* status fields are redacted, along with the
+config entry's title and unique_id, which are derived from those identifiers.
 
 The polling summary carries no raw exception text: it exposes only the
 exception's class name and translation key, so a message the coordinator
@@ -33,7 +34,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.loader import async_get_integration
 
 from .const import CONF_BLE_MAC, CONF_WIFI_MAC, CONF_WIFI_NAME, DOMAIN
-from .coordinator import MAX_SILENT_POLLS, MarstekConfigEntry
+from .coordinator import (
+    MAX_SILENT_POLLS,
+    MarstekConfigEntry,
+    MarstekDataUpdateCoordinator,
+)
 
 # Field names whose values identify the user's network or hardware and must
 # not leave the device. The config-entry data dict and the MarstekDeviceInfo
@@ -83,7 +88,12 @@ async def async_get_config_entry_diagnostics(
     the last failure's exception class name and translation key only, never
     the exception text (which may carry the device IP).
     """
-    coordinator = entry.runtime_data
+    # runtime_data is only an annotation until async_setup_entry stored a
+    # coordinator, so an entry stuck in setup-retry raises AttributeError here
+    # unless we use getattr; diagnostics must still work in that state.
+    coordinator: MarstekDataUpdateCoordinator | None = getattr(
+        entry, "runtime_data", None
+    )
 
     device_info: dict[str, Any] | None = None
     status: dict[str, Any] | None = None

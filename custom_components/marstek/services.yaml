@@ -7,23 +7,17 @@ set_mode:
   fields:
     mode:
       name: Mode
-      description: "Operating mode (auto, ai, manual, passive, ups)."
+      description: "Operating mode (auto, ups)."
       required: true
       selector:
         select:
           options:
             - "auto"
-            - "ai"
-            - "manual"
-            - "passive"
             - "ups"
     config:
       name: Configuration
       description: >-
-        Mode-specific configuration. For manual mode pass the full time-slot
-        list under manual_cfg (the Open API accepts the whole schedule in one
-        ES.SetMode payload; there is no per-slot command). For passive mode
-        pass power and cd_time. For ups mode pass enable.
+        Mode-specific configuration. For ups mode pass enable.
       required: false
       selector:
         object:
@@ -65,40 +59,3 @@ set_power_version:
             - "1500"
             - "2200"
             - "2500"
-
-factory_reset:
-  name: Factory reset
-  description: >-
-    Reset the device to factory settings. By default (keep_accumulated_data
-    false) this clears accumulated energy counters and other data; set
-    keep_accumulated_data true to preserve them.
-  target:
-    entity:
-      integration: marstek
-  fields:
-    keep_accumulated_data:
-      name: Keep accumulated data
-      description: >-
-        Omit or set false to clear all accumulated data; set true to preserve
-        lifetime energy counters.
-      required: false
-      default: false
-      selector:
-        boolean:
-
-set_manual_schedule:
-  name: Set manual schedule
-  description: Replace the device's Manual-mode time schedule.
-  target:
-    entity:
-      integration: marstek
-  fields:
-    slots:
-      name: Time slots
-      description: >-
-        The full Manual-mode time schedule. Each slot needs start_time,
-        end_time, days (mon..sun) and power; manual_set, enable and time_num
-        are optional.
-      required: true
-      selector:
-        object:
