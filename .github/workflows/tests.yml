@@ -47,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install aiomarstek==0.2.2 voluptuous pyyaml pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.372 mypy pytest-cov
+          python -m pip install aiomarstek==0.2.5 voluptuous pyyaml pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.372 mypy pytest-cov
       - name: Run tests
         run: python -m pytest --cov=custom_components/marstek --cov-report=term-missing
       - name: Type check
